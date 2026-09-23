@@ -44,5 +44,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Local and production environment files
+.env
+.env.production
+
 # Widget Preview related
 .widget_preview/

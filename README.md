@@ -1,17 +1,127 @@
-# travel_record
+# 여행기록 앱
 
-A new Flutter project.
+## 변경 이력
 
-## Getting Started
+| 버전 | 날짜 | 작성(수정)자 | 변경 내용 |
+|---|---|---|---|
+| v1.0 | 2026-09-23 | tokec | README 한국어 작성 및 문서 링크 추가 |
+| v1.1 | 2026-09-23 | tokec | PRD 문서 링크 추가 |
+| v1.2 | 2026-09-23 | tokec | 사용자 시나리오 문서 링크 추가 |
+| v1.3 | 2026-09-23 | tokec | 와이어프레임 문서 링크 추가 |
+| v1.4 | 2026-09-23 | tokec | 프로젝트 구조 설계 원칙 링크 추가 |
+| v1.5 | 2026-09-23 | tokec | 기술 아키텍처 다이어그램 링크 추가 |
+| v1.6 | 2026-09-23 | tokec | ERD 문서 링크 추가 |
+| v1.7 | 2026-09-23 | tokec | 실행 계획 문서 링크 추가 |
+| v1.8 | 2026-09-23 | tokec | 실행 계획 파일명을 10-plan.md로 변경 |
+| v1.9 | 2026-09-23 | tokec | 환경변수 파일 기반 서비스 키 관리 추가 |
+| v2.0 | 2026-09-23 | tokec | 현재 구현 기능, 사진 권한·메타데이터, 지도 제스처와 재인증 정책 반영 |
+| v2.1 | 2026-09-23 | tokec | Firebase 인증·Firestore 기반 백엔드 API 추가 |
+| v2.2 | 2026-09-23 | tokec | 여행 상세 화면을 참조 레이아웃과 기록 목록 구조로 갱신 |
+| v2.3 | 2026-09-23 | tokec | 메인 대시보드 시안과 진한 파랑 테마 반영 |
+| v2.4 | 2026-09-23 | tokec | 여행 생성 날짜 범위·국가 표시와 시간순 여행 기록 반영 |
+| v2.5 | 2026-09-23 | tokec | 여행 기록 썸네일·날씨 상태·종료 위치 조건과 선택 수정·삭제 반영 |
+| v2.6 | 2026-09-23 | tokec | 여행 기록 항목 팝업에서 메모 수정·추가와 즉시 메타데이터 삭제 지원 |
+| v2.7 | 2026-09-23 | tokec | 메모 팝업 생명주기 오류 수정과 과거 여행 경로선 표시 추가 |
+| v2.8 | 2026-09-23 | tokec | 사진 메모 기록 제목·내용 표시와 상세 상단 날씨 카드 반영 |
+| v2.9 | 2026-09-23 | tokec | WWIS 도시 예보 조회·저장 연결로 날씨 수집 누락 수정 |
+| v3.0 | 2026-09-23 | tokec | 여행 기록 목록을 3줄 정보 구조와 소형 시각 표시로 조정 |
+| v3.1 | 2026-09-23 | tokec | 여행 상세 헤더·사진 칩·지도 높이와 기록 첫 줄 글꼴 조정 |
+| v3.2 | 2026-09-23 | tokec | 최신 여행 데이터 반영과 사진 기록 위치 마커 표시 수정 |
+| v3.3 | 2026-09-23 | tokec | 상세 헤더·날씨-지도 간격과 기록 카드 2줄 밀도 조정 |
+| v3.4 | 2026-09-23 | tokec | 메뉴 재진입 시 여행기록 유실을 막는 저장 직렬화·병합 처리 추가 |
+| v3.5 | 2026-09-23 | tokec | 사진 메모 재진입 보존 회귀 테스트 추가 및 메모 저장 범위 명확화 |
+| v3.6 | 2026-09-23 | tokec | WWIS 도시명 정규화·재시도와 날씨 수집 실패 원인 표시 추가 |
+| v3.7 | 2026-09-23 | tokec | 국내 주요 도시·행정구역명 정규화와 WWIS 인접 도시 매핑 보강 |
+| v3.8 | 2026-09-23 | tokec | 여행 종료일 기준 날씨 조회와 날짜별 날씨 캐시 검증 추가 |
+| v3.9 | 2026-09-23 | tokec | 날씨 카드 배경 이미지와 사용자 삭제 전 여행 데이터 보존 원칙 반영 |
+| v4.0 | 2026-09-23 | tokec | 날씨 카드를 여행 기록 목록 최상단으로 이동 |
+| v4.1 | 2026-09-23 | tokec | 세종 등 WWIS 인접 도시의 제공 예보 fallback 표시 보강 |
+| v4.2 | 2026-09-23 | tokec | 당일 날씨 조회·저장, 과거 저장 날씨 조회와 최저·최고 온도 표시 반영 |
+| v4.3 | 2026-09-23 | tokec | 진행 중 여행의 당일 WWIS 누락 시 현재 날씨 보완 조회 추가 |
+| v4.4 | 2026-09-23 | tokec | 날씨 카드를 날짜·아이콘·최고·최저 온도 레이아웃으로 변경 |
+| v4.5 | 2026-09-25 | tokec | GPS 이동경로를 현지 지도에 날짜별 색상으로 표시하고 지도 이동·확대/축소에 맞춰 갱신 |
+| v4.6 | 2026-09-25 | tokec | 카카오 Android SDK의 비정상 화면좌표 반환 시 보정 투영으로 GPS 경로 표시 보완 |
+| v4.7 | 2026-09-25 | tokec | Android 네이티브 Kakao ShapeLayer 경로 렌더링 연결 |
+| v4.8 | 2026-09-25 | tokec | 사진·동영상 기록의 촬영순번을 카드 썸네일과 지도 발생 위치에 공통 표시 |
+| v4.9 | 2026-09-25 | tokec | 날씨를 제외한 전체 여행기록 카드의 시간순 번호를 지도 위치와 연결 |
+| v5.0 | 2026-09-25 | tokec | 진행 중 여행도 저장된 전체 GPS 경로와 현재 위치를 함께 기준으로 지도 축척 보정 |
+| v5.1 | 2026-09-25 | tokec | Android 카카오 지도 bounds 자동 맞춤을 SDK fitMapPoints로 연결하여 GPS 경로 위치·축척 보정 |
+| v5.2 | 2026-09-25 | tokec | 카카오 표준 fitMapPoints 좌표 배열 방식으로 시작 위치·경로 전체 자동 맞춤 보정 |
+| v5.3 | 2026-09-25 | tokec | Android에서 지도와 분리된 Flutter 경로 보정 레이어를 제거하여 이동·확대 시 경로 부유 현상 수정 |
+| v5.4 | 2026-09-25 | tokec | 카카오 기본 ShapeLayer와 명시적 Polyline 표시로 네이티브 GPS 경로 미표시 문제 보완 |
+| v5.5 | 2026-09-25 | tokec | 지도 준비 완료 후 네이티브 GPS 경로를 그리도록 초기화 순서 보정 |
+| v5.6 | 2026-09-25 | tokec | 지도 컨트롤러 준비 대기 중단으로 경로·카메라 초기화 중단 문제 수정 |
+| v5.7 | 2026-09-25 | tokec | 기본 마커 레이어를 경로 렌더링 전에 초기화하여 마커 오류로 GPS 경로가 중단되던 문제 수정 |
 
-This project is a starting point for a Flutter application.
+여행 중 생성되는 사진, 동영상, 이동경로, 메모, 결제, 검색 자료와 날씨 정보를 여행 단위로 모아 조회하는 Flutter 앱이다.
 
-A few resources to get you started if this is your first Flutter project:
+## 시작하기
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+프로젝트 루트에서 다음 명령어를 실행한다.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```text
+flutter pub get
+flutter analyze
+flutter test
+flutter run
+```
+
+서비스 키는 로컬 `.env`에 저장한다. `.env`와 `.env.production`은 Git에 포함하지 않으며, 예시 파일만 제공한다.
+
+```bash
+cp .env.example .env
+# .env에 로컬 키 입력
+flutter run
+
+# 배포 시 .env.production에 배포용 키를 입력한 뒤
+./tool/build_production.sh
+```
+
+배포 스크립트는 빌드 중 `.env.production`을 임시로 `.env`로 사용하고, 빌드가 끝나면 `.env`를 삭제한다.
+
+## 백엔드 실행
+
+백엔드는 `backend/`에 있으며 Firebase Authentication ID 토큰을 검증하고 Firestore에 사용자별 여행, GPS, 사진 메타데이터와 공유 세션을 저장한다. 사진 원본은 서버에 업로드하지 않는다.
+
+```bash
+cd backend
+npm install
+export GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/service-account.json
+export FIREBASE_PROJECT_ID=your-firebase-project-id
+npm test
+npm start
+```
+
+API 상세와 요청 형식은 [백엔드 README](backend/README.md)를 참고한다.
+
+## 현재 구현 범위
+
+- 로컬 생체인증·기기 PIN 대체 인증 기반 앱 잠금. 백그라운드에서 연속 10분 이상 경과한 뒤 포그라운드로 복귀하면 다시 인증한다.
+- 여행 생성·GPS 위치·사진 메타데이터·날씨 기록을 `SharedPreferencesAsync` 기반 로컬 저장소에 저장한다. 기본 GPS 수집 간격은 5분이다.
+- 진행 중 여행은 저장된 경로와 현재 위치, 과거 여행은 저장 경로, 미래 여행은 도시 중심을 기준으로 현지 지도를 자동 맞춤한다.
+- Android 카카오 지도에서 핀치 확대·축소, 한 손가락 드래그, 현재 위치 이동, 날짜별 네이티브 GPS 폴리라인과 기록 마커를 지원한다.
+- 여행기간 사진을 사진첩에서 grid로 조회하고, 선택한 사진의 현지 촬영시각·장소·파일 경로만 메타데이터로 저장한다. 메타데이터 삭제 시 원본 사진은 삭제하지 않는다.
+- 사진 접근 권한은 사진 기능 사용 시 요청한다. Android는 `READ_MEDIA_IMAGES`/구버전 저장소 권한, iOS는 사진첩 읽기 권한을 사용한다.
+- 자동 수집한 GPS 원본 좌표 목록은 일반 화면에 직접 나열하지 않으며, Android 현지 지도에 날짜별 색상 경로로 표시한다. 경로는 지도 SDK의 네이티브 ShapeLayer에 그려 지도 이동·확대/축소와 함께 고정된다.
+- 여행 기록은 사진 썸네일과 부가정보를 2컬럼으로 표시하고, 종료 위치는 여행 종료일 다음 날부터 표시한다. `...` 메뉴에서 사진 기록을 선택해 메모 수정 또는 메타데이터 삭제를 수행하며 원본 사진은 유지한다.
+- 기록 화면에는 저장된 날씨 요약 또는 미수집 상태를 표시한다.
+- 여행 상세 진입 시 WWIS 도시 목록과 예보를 조회해 날씨 요약을 로컬 여행 데이터에 저장한다.
+- 여행 데이터는 사용자가 명시적으로 삭제한 경우를 제외하고 자동 수집·메모·날씨·사진 메타데이터를 보존한다.
+- 당일 여행은 대상일 날씨를 조회해 저장하고, 과거 여행은 저장된 날씨 기록만 표시한다. 날씨에는 상태와 최저·최고 온도를 표시하며 습도는 저장하지 않는다.
+
+현재 지도 구현은 Android 카카오지도다. 해외 Google Map 전환과 iOS 지도 경로 렌더링은 후속 작업이다. 서비스 키는 소스에 저장하지 않고 `.env`에서 관리한다.
+
+백엔드(`backend/`)는 Firebase ID 토큰 검증·Firestore REST API와 도메인 테스트까지 구현되어 있으나, Flutter 앱의 원격 인증·동기화·실제 공유 전송은 아직 연결하지 않았다.
+
+## 문서
+
+- [기본 개발 규칙](docs/1-develop-rule.md)
+- [기본 문서 작성 규칙](docs/2-document-rule.md)
+- [도메인 정의](docs/3-domain-definition.md)
+- [제품 요구사항 문서](docs/4-prd.md)
+- [사용자 시나리오](docs/5-user-scenario.md)
+- [와이어프레임](docs/6-wireframes.md)
+- [프로젝트 구조 설계 원칙](docs/7-project-principle.md)
+- [기술 아키텍처 다이어그램](docs/8-tech_diagram.txt)
+- [논리 ERD](docs/9-erd.md)
+- [실행 계획](docs/10-plan.md)

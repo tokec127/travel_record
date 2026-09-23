@@ -1,0 +1,25 @@
+다음 새 패키지를 설치할 것입니다:
+  bzip2-doc clang clang-21 clang-tools-21 cmake cmake-data gir1.2-freedesktop-dev
+  gir1.2-glib-2.0-dev gir1.2-gly-2 girepository-tools icu-devtools lib32gcc-s1 lib32stdc++6
+  libatk-bridge2.0-dev libatk1.0-dev libatspi2.0-dev libblkid-dev libbrotli-dev libbz2-dev
+  libc6-i386 libcairo2-dev libclang-common-21-dev libclang-rt-21-dev libdatrie-dev libdbus-1-dev
+  libegl-dev libegl1-mesa-dev libepoxy-dev libexpat1-dev libffi-dev libfontconfig-dev
+  libfreetype-dev libfribidi-dev libgc1 libgdk-pixbuf-2.0-dev libgio-2.0-dev libgio-2.0-dev-bin
+  libgl-dev libgles-dev libgles1 libglib2.0-dev libglib2.0-dev-bin libglvnd-core-dev libglvnd-dev
+  libglx-dev libglycin-2-dev libgraphite2-dev libgtk-3-dev libharfbuzz-cairo0 libharfbuzz-dev
+  libicu-dev liblcms2-dev liblzma-dev libmount-dev libncurses-dev libobjc-15-dev libobjc4
+  libopengl-dev libpango1.0-dev libpcre2-dev libpcre2-posix3 libpfm4 libpixman-1-dev libpng-dev
+  libpng-tools librhash1 libseccomp-dev libselinux-dev libsepol-dev libsysprof-capture-4-dev
+  libsystemd-dev libthai-dev libwayland-bin libwayland-dev libxcb-render0-dev libxcb-shm0-dev
+  libxcomposite-dev libxcursor-dev libxdamage-dev libxext-dev libxfixes-dev libxft-dev libxi-dev
+  libxinerama-dev libxkbcommon-dev libxml2-dev libxrandr-dev libxrender-dev libxres-dev
+  libxtst-dev llvm-21 llvm-21-dev llvm-21-linker-tools llvm-21-runtime llvm-21-tools mesa-utils
+  mesa-utils-bin native-architecture ninja-build pango1.0-tools pkg-config wayland-protocols
+  zlib1g-dev
+0개 업그레이드, 103개 새로 설치, 0개 제거 및 9개 업그레이드 안 함.
+712 k바이트/140 M바이트 아카이브를 받아야 합니다.
+이 작업 후 812 M바이트의 디스크 공간을 더 사용하게 됩니다.
+오류:1 http://security.ubuntu.com/ubuntu resolute-security/main amd64 libxml2-dev amd64 2.15.2+dfsg-0.1ubuntu0.1
+  404  Not Found [IP: 91.189.91.81 80]
+E: http://security.ubuntu.com/ubuntu/pool/main/libx/libxml2/libxml2-dev_2.15.2%2bdfsg-0.1ubuntu0.1_amd64.deb 파일을 받는데 실패했습니다  404  Not Found [IP: 91.189.91.81 80]
+E: 아카이브를 받을 수 없습니다. 아마도 apt update를 실행해야 하거나 --fix-missing 옵션을 줘서 실행해야 할 것입니다.

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844" role="img" aria-labelledby="title desc">
+  <title id="title">여행기록 앱 할 일 목록 와이어프레임</title>
+  <desc id="desc">서울 여행의 할 일을 표시하는 스마트폰 세로 화면 와이어프레임</desc>
+  <rect width="390" height="844" fill="#F7F8FA"/>
+  <rect x="0" y="0" width="390" height="44" fill="#FFFFFF"/>
+  <text x="16" y="28" font-family="sans-serif" font-size="18" fill="#17202A">‹</text>
+  <text x="52" y="28" font-family="sans-serif" font-size="18" font-weight="700" fill="#17202A">할 일 목록</text>
+  <text x="358" y="29" font-family="sans-serif" font-size="24" fill="#2563EB">+</text>
+  <rect x="16" y="64" width="358" height="76" rx="12" fill="#FFFFFF" stroke="#E5E7EB"/>
+  <text x="32" y="91" font-family="sans-serif" font-size="17" font-weight="700" fill="#17202A">서울 여행</text>
+  <text x="32" y="117" font-family="sans-serif" font-size="14" fill="#667085">2026.09.20 ~ 2026.09.23</text>
+  <text x="32" y="166" font-family="sans-serif" font-size="14" font-weight="700" fill="#667085">준비할 일</text>
+  <g font-family="sans-serif">
+    <rect x="16" y="184" width="358" height="72" rx="10" fill="#FFFFFF" stroke="#E5E7EB"/>
+    <rect x="32" y="207" width="22" height="22" rx="4" fill="#FFFFFF" stroke="#98A2B3" stroke-width="2"/>
+    <text x="70" y="216" font-size="16" fill="#17202A">여권 확인</text>
+    <text x="70" y="238" font-size="12" fill="#667085">여행 준비</text>
+    <text x="344" y="222" font-size="20" fill="#667085">⋯</text>
+    <rect x="16" y="268" width="358" height="72" rx="10" fill="#FFFFFF" stroke="#E5E7EB"/>
+    <rect x="32" y="291" width="22" height="22" rx="4" fill="#FFFFFF" stroke="#98A2B3" stroke-width="2"/>
+    <text x="70" y="300" font-size="16" fill="#17202A">숙소 예약 확인</text>
+    <text x="70" y="322" font-size="12" fill="#667085">여행 준비</text>
+    <text x="344" y="306" font-size="20" fill="#667085">⋯</text>
+    <rect x="16" y="352" width="358" height="72" rx="10" fill="#FFFFFF" stroke="#E5E7EB"/>
+    <rect x="32" y="375" width="22" height="22" rx="4" fill="#2563EB"/>
+    <path d="M37 386 l6 6 10-13" fill="none" stroke="#FFFFFF" stroke-width="2.5"/>
+    <text x="70" y="384" font-size="16" fill="#667085" text-decoration="line-through">환전</text>
+    <text x="70" y="406" font-size="12" fill="#667085">완료</text>
+    <text x="344" y="390" font-size="20" fill="#667085">⋯</text>
+  </g>
+  <line x1="16" y1="462" x2="374" y2="462" stroke="#E5E7EB"/>
+  <text x="32" y="502" font-family="sans-serif" font-size="14" fill="#667085">완료 항목 숨기기</text>
+  <rect x="320" y="484" width="42" height="24" rx="12" fill="#2563EB"/>
+  <circle cx="350" cy="496" r="9" fill="#FFFFFF"/>
+  <rect x="0" y="800" width="390" height="44" fill="#FFFFFF"/>
+  <text x="195" y="827" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#98A2B3">제안 화면 · 제품 범위 확정 필요</text>
+</svg>

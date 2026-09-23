@@ -1,0 +1,6 @@
+# 대상파일: docs/8-tech_diagram.txt
+
+# 필요한 diagram을 추가
+적절한 서브에이전트를 사용해서 @docs\ 디렉토리의 문서를 바탕으로 기술 아키텍처 다이어그램을 mermaid 형식으로 작성한 후 대상파일에 저장해줘.  
+- 최대한 단순한 구조로 표현할 것
+- 복잡한 Biz Logic 이 있다면 그 부분만 Sequence Diagram으로 표현할 것

@@ -1,0 +1,17 @@
+{
+  "name": "travel-record-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Travel Record Firebase-backed API",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test tests/domain.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.5.0"
+  }
+}
