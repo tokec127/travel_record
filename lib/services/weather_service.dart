@@ -25,6 +25,9 @@ class WeatherService {
     final city = _findCity(cities, trip);
     if (city == null) return null;
 
+    if (_isToday(date)) {
+      return await _fetchTodayFallback(city, date);
+    }
     if (_dateOnly(date).isBefore(_dateOnly(DateTime.now()))) {
       return await _fetchHistoricalRecord(city, date);
     }

@@ -776,7 +776,8 @@ class TripDetailPage extends StatefulWidget {
   State<TripDetailPage> createState() => _TripDetailPageState();
 }
 
-class _TripDetailPageState extends State<TripDetailPage> {
+class _TripDetailPageState extends State<TripDetailPage>
+    with WidgetsBindingObserver {
   static const _recordAccent = Color(0xff64b5f6);
   final _locationService = LocationService();
   final _weatherService = WeatherService();
@@ -785,13 +786,76 @@ class _TripDetailPageState extends State<TripDetailPage> {
   String _weatherStatus = '날씨 정보를 불러오는 중...';
   bool _selectionMode = false;
   bool _recordDialogOpen = false;
+  bool _photoSyncing = false;
   final Set<String> _selectedRecordIds = {};
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _trip = widget.trip;
-    _loadLatestTrip().then((_) => _loadWeather());
+    _loadLatestTrip().then((_) async {
+      await _syncPhotos();
+      await _loadWeather();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _locationService.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) _syncPhotos();
+  }
+
+  Future<void> _syncPhotos() async {
+    if (_photoSyncing) return;
+    _photoSyncing = true;
+    try {
+      final permission = await PhotoManager.requestPermissionExtend();
+      if (!permission.hasAccess) return;
+      final paths = await PhotoManager.getAssetPathList(
+        onlyAll: true,
+        type: RequestType.image,
+      );
+      if (paths.isEmpty) return;
+      final album = paths.first;
+      final count = await album.assetCountAsync;
+      if (count == 0) return;
+      final assets = await album.getAssetListRange(
+        start: 0,
+        end: count,
+        type: RequestType.image,
+      );
+      final start = _dateOnly(_trip.startDate);
+      final end = _dateOnly(_trip.endDate);
+      final hidden = _trip.hiddenPhotoIds.toSet();
+      final known = _trip.photoMetadata.map((photo) => photo.assetId).toSet();
+      final photos = [..._trip.photoMetadata];
+      for (final asset in assets) {
+        final created = _dateOnly(asset.createDateTime);
+        if (known.contains(asset.id) ||
+            hidden.contains(asset.id) ||
+            created.isBefore(start) ||
+            created.isAfter(end)) {
+          continue;
+        }
+        photos.add(await _photoMetadataFromAsset(asset, _trip.routePoints));
+        known.add(asset.id);
+      }
+      if (photos.length == _trip.photoMetadata.length) return;
+      final updated = _trip.copyWith(photoMetadata: photos);
+      await widget.store.save(updated);
+      if (mounted) setState(() => _trip = updated);
+    } catch (_) {
+      // 사진 접근이 불가능해도 여행 기록 화면은 계속 표시한다.
+    } finally {
+      _photoSyncing = false;
+    }
   }
 
   Future<void> _loadLatestTrip() async {
@@ -841,7 +905,10 @@ class _TripDetailPageState extends State<TripDetailPage> {
           .where((record) => _dateOnly(record.date) == date)
           .firstOrNull;
       final isPast = date.isBefore(_dateOnly(DateTime.now()));
-      if (existing != null && (!isPast || existing.source == '과거 날씨')) {
+      final isToday = _dateOnly(date) == _dateOnly(DateTime.now());
+      if (existing != null &&
+          !isToday &&
+          (!isPast || existing.source == '과거 날씨')) {
         continue;
       }
       try {
@@ -951,6 +1018,14 @@ class _TripDetailPageState extends State<TripDetailPage> {
         : Icons.wb_sunny_outlined;
   }
 
+  String? _temperatureMemo(DateTime date) {
+    final record = _weatherRecordFor(date);
+    final maximum = record?.maximumTemperature;
+    final minimum = record?.minimumTemperature;
+    if (maximum == null || minimum == null) return null;
+    return '최고 ${maximum.toStringAsFixed(0)}°C / 최저 ${minimum.toStringAsFixed(0)}°C';
+  }
+
   WeatherRecord? _weatherRecordFor(DateTime date) {
     for (final record in _trip.weatherRecords) {
       if (_dateOnly(record.date) == _dateOnly(date)) return record;
@@ -1004,11 +1079,26 @@ class _TripDetailPageState extends State<TripDetailPage> {
 
   Future<void> _deleteSelectedRecords() async {
     if (_selectedRecordIds.isEmpty) return;
-    final hidden = {..._trip.hiddenPhotoIds, ..._selectedRecordIds};
+    final selectedPhotoIds = <String>{};
+    final selectedManualIds = <String>{};
+    for (final entry in _timelineEntries()) {
+      if (entry.id != null && _selectedRecordIds.contains(entry.id)) {
+        selectedPhotoIds.addAll(
+          entry.groupPhotos.map((photo) => photo.assetId),
+        );
+        if (entry.manualRecord != null) {
+          selectedManualIds.add(entry.manualRecord!.id);
+        }
+      }
+    }
+    final hidden = {..._trip.hiddenPhotoIds, ...selectedPhotoIds};
     _trip = _trip.copyWith(
       hiddenPhotoIds: hidden.toList(),
       photoMetadata: _trip.photoMetadata
           .where((photo) => !hidden.contains(photo.assetId))
+          .toList(),
+      manualRecords: _trip.manualRecords
+          .where((record) => !selectedManualIds.contains(record.id))
           .toList(),
     );
     await widget.store.save(_trip);
@@ -1019,70 +1109,49 @@ class _TripDetailPageState extends State<TripDetailPage> {
     });
   }
 
-  Future<void> _editSelectedRecord() async {
-    if (_selectedRecordIds.length != 1) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('수정할 사진 기록을 하나만 선택해주세요.')));
-      return;
-    }
-    final id = _selectedRecordIds.single;
-    final index = _trip.photoMetadata.indexWhere(
-      (photo) => photo.assetId == id,
-    );
-    if (index < 0) return;
-    final photo = _trip.photoMetadata[index];
-    await _editPhoto(photo);
-  }
-
-  Future<void> _editPhoto(PhotoMetadata photo) async {
-    final index = _trip.photoMetadata.indexWhere(
-      (item) => item.assetId == photo.assetId,
-    );
-    if (index < 0) return;
-    final memo = await showDialog<String>(
-      context: context,
-      builder: (_) => _EditMemoDialog(initialMemo: photo.memo),
-    );
-    if (memo == null) return;
-    final updated = [..._trip.photoMetadata];
-    updated[index] = PhotoMetadata(
-      assetId: photo.assetId,
-      capturedAt: photo.capturedAt,
-      filePath: photo.filePath,
-      title: photo.title,
-      memo: memo,
-      place: photo.place,
-      mediaType: photo.mediaType,
-      latitude: photo.latitude,
-      longitude: photo.longitude,
-    );
-    _trip = _trip.copyWith(photoMetadata: updated);
-    await widget.store.save(_trip);
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _deletePhoto(String assetId) async {
-    _trip = _trip.copyWith(
-      hiddenPhotoIds: {..._trip.hiddenPhotoIds, assetId}.toList(),
-      photoMetadata: _trip.photoMetadata
-          .where((photo) => photo.assetId != assetId)
-          .toList(),
-    );
-    await widget.store.save(_trip);
-    if (mounted) setState(() {});
-  }
-
   Future<void> _addManualRecord() async {
     final draft = await showDialog<_ManualRecordDraft>(
       context: context,
       builder: (_) => const _AddRecordDialog(),
     );
     if (draft == null) return;
-    final now = DateTime.now();
+    if (!mounted) return;
+    if (draft.kind == 'photo') {
+      final assets = await showDialog<List<AssetEntity>>(
+        context: context,
+        builder: (_) => _PhotoPickerDialog(
+          startDate: _trip.startDate,
+          endDate: _trip.endDate,
+        ),
+      );
+      if (assets == null || assets.isEmpty) return;
+      final photos = [..._trip.photoMetadata];
+      final known = photos.map((photo) => photo.assetId).toSet();
+      for (final asset in assets) {
+        if (!known.add(asset.id)) continue;
+        final photo = await _photoMetadataFromAsset(asset, _trip.routePoints);
+        photos.add(
+          PhotoMetadata(
+            assetId: photo.assetId,
+            capturedAt: photo.capturedAt,
+            filePath: photo.filePath,
+            title: draft.title.trim().isEmpty ? null : draft.title.trim(),
+            memo: draft.memo.trim().isEmpty ? null : draft.memo.trim(),
+            place: draft.place.trim().isEmpty ? null : draft.place.trim(),
+            mediaType: photo.mediaType,
+            latitude: photo.latitude,
+            longitude: photo.longitude,
+          ),
+        );
+      }
+      _trip = _trip.copyWith(photoMetadata: photos);
+      await widget.store.save(_trip);
+      if (mounted) setState(() {});
+      return;
+    }
     final record = ManualRecord(
-      id: now.microsecondsSinceEpoch.toString(),
-      recordedAt: now,
+      id: draft.recordedAt.microsecondsSinceEpoch.toString(),
+      recordedAt: draft.recordedAt,
       kind: draft.kind,
       title: draft.title.trim(),
       memo: draft.memo.trim(),
@@ -1198,7 +1267,15 @@ class _TripDetailPageState extends State<TripDetailPage> {
 
   Future<void> _deleteRecord(_TimelineEntry entry) async {
     if (entry.photo != null) {
-      await _deletePhoto(entry.photo!.assetId);
+      final ids = entry.groupPhotos.map((photo) => photo.assetId).toSet();
+      _trip = _trip.copyWith(
+        hiddenPhotoIds: {..._trip.hiddenPhotoIds, ...ids}.toList(),
+        photoMetadata: _trip.photoMetadata
+            .where((photo) => !ids.contains(photo.assetId))
+            .toList(),
+      );
+      await widget.store.save(_trip);
+      if (mounted) setState(() {});
       return;
     }
     if (entry.manualRecord != null) {
@@ -1232,14 +1309,14 @@ class _TripDetailPageState extends State<TripDetailPage> {
         actions: [
           if (_selectionMode) ...[
             IconButton(
-              onPressed: _editSelectedRecord,
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: '선택 항목 수정',
-            ),
-            IconButton(
               onPressed: _deleteSelectedRecords,
               icon: const Icon(Icons.delete_outline),
               tooltip: '선택 항목 삭제',
+            ),
+            IconButton(
+              onPressed: _addManualRecord,
+              icon: const Icon(Icons.add),
+              tooltip: '여행 기록 추가',
             ),
             IconButton(
               onPressed: () => setState(() {
@@ -1274,24 +1351,6 @@ class _TripDetailPageState extends State<TripDetailPage> {
             padding: const EdgeInsets.only(top: 8),
             child: TripMap(trip: _trip, onRecordTap: _showRecordByNumber),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-            child: Row(
-              children: [
-                Text(
-                  '여행 기록',
-                  style: Theme.of(context).textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: _addManualRecord,
-                  icon: const Icon(Icons.add),
-                  tooltip: '여행 기록 추가',
-                ),
-              ],
-            ),
-          ),
           Expanded(child: _buildRecordList()),
         ],
       ),
@@ -1320,9 +1379,11 @@ class _TripDetailPageState extends State<TripDetailPage> {
       entries.add(
         _TimelineEntry(
           time: first.recordedAt,
-          title: '시작 위치',
+          title: '시작',
           detail: _coordinate(first.latitude, first.longitude),
-          memo: first.memo,
+          memo: first.memo?.trim().isNotEmpty == true
+              ? first.memo
+              : _temperatureMemo(first.recordedAt),
           icon: _weatherIconFor(first.recordedAt),
           badge: 'S',
           routePoint: first,
@@ -1332,7 +1393,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
         entries.add(
           _TimelineEntry(
             time: last.recordedAt,
-            title: '종료 위치',
+            title: '종료',
             detail: _coordinate(last.latitude, last.longitude),
             memo: last.memo,
             icon: _weatherIconFor(last.recordedAt),
@@ -1381,6 +1442,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
           icon: record.kind == 'payment'
               ? Icons.receipt_long_outlined
               : Icons.note_alt_outlined,
+          id: record.id,
           manualRecord: record,
         ),
       );
@@ -1400,7 +1462,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
     });
     var sequence = 0;
     for (var index = 0; index < entries.length; index++) {
-      if (entries[index].title != '날씨') {
+      if (entries[index].title != '날씨' && entries[index].badge == null) {
         sequence++;
         entries[index] = entries[index].copyWith(sequence: sequence);
       }
@@ -1456,7 +1518,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
 
   Future<void> _showRecordByNumber(int number) async {
     final records = _timelineEntries()
-        .where((entry) => entry.title != '날씨')
+        .where((entry) => entry.title != '날씨' && entry.badge == null)
         .toList();
     if (number < 1 || number > records.length) return;
     await _showRecordActions(records[number - 1]);
@@ -1544,11 +1606,17 @@ class _TripDetailPageState extends State<TripDetailPage> {
                         ),
                         const SizedBox(width: 8),
                         SizedBox(
-                          width: 52,
+                          width: 42,
                           height: 52,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: _thumbnail(entry),
+                          child: Center(
+                            child: SizedBox(
+                              width: 42,
+                              height: 42,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: _thumbnail(entry),
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -1561,15 +1629,36 @@ class _TripDetailPageState extends State<TripDetailPage> {
                                 child: Row(
                                   children: [
                                     Expanded(
-                                      child: Text(
-                                        entry.title,
+                                      child: Text.rich(
+                                        TextSpan(
+                                          text: entry.title,
+                                          children: [
+                                            if ((entry.photo?.place ??
+                                                        entry
+                                                            .manualRecord
+                                                            ?.place)
+                                                    ?.trim()
+                                                    .isNotEmpty ==
+                                                true)
+                                              TextSpan(
+                                                text:
+                                                    ' @${(entry.photo?.place ?? entry.manualRecord?.place)!.trim()}',
+                                                style: TextStyle(
+                                                  color: _dateColor(
+                                                    _trip.startDate,
+                                                    entry.time,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 14,
+                                          ),
+                                        ),
                                         maxLines: 1,
                                         softWrap: false,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 14,
-                                        ),
                                       ),
                                     ),
                                     const SizedBox(width: 6),
@@ -1863,25 +1952,31 @@ class _RecordDetailDialogState extends State<_RecordDetailDialog> {
     final photo = widget.entry.photo;
     if (photo == null) return const SizedBox.shrink();
     if (widget.entry.groupPhotos.length > 1) {
-      return Wrap(
-        spacing: 4,
-        runSpacing: 4,
-        children: [
-          for (final item in widget.entry.groupPhotos)
-            SizedBox(
-              width: 96,
-              height: 96,
-              child: FutureBuilder<Uint8List?>(
-                future: _photoBytes[item.assetId],
-                builder: (context, snapshot) {
-                  final bytes = snapshot.data;
-                  return bytes == null
-                      ? const ColoredBox(color: Colors.black12)
-                      : Image.memory(bytes, fit: BoxFit.cover);
-                },
-              ),
-            ),
-        ],
+      return SizedBox(
+        height: 256,
+        child: GridView.builder(
+          padding: EdgeInsets.zero,
+          primary: false,
+          physics: const AlwaysScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 4,
+            mainAxisSpacing: 4,
+          ),
+          itemCount: widget.entry.groupPhotos.length,
+          itemBuilder: (context, index) {
+            final item = widget.entry.groupPhotos[index];
+            return FutureBuilder<Uint8List?>(
+              future: _photoBytes[item.assetId],
+              builder: (context, snapshot) {
+                final bytes = snapshot.data;
+                return bytes == null
+                    ? const ColoredBox(color: Colors.black12)
+                    : Image.memory(bytes, fit: BoxFit.cover);
+              },
+            );
+          },
+        ),
       );
     }
     return SizedBox(
@@ -1958,47 +2053,51 @@ class _RecordDetailDialogState extends State<_RecordDetailDialog> {
     final photo = widget.entry.photo;
     final isPhoto = photo != null;
     final isManual = widget.entry.manualRecord != null;
+    final isGroup = widget.entry.groupPhotos.length > 1;
     final isEditableMemo =
         isPhoto || widget.entry.routePoint != null || isManual;
     return AlertDialog(
-      scrollable: true,
+      scrollable: !isGroup,
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
       contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _timeValue(_dateTime(widget.entry.time)),
-          if (isPhoto) _photoPreview(),
-          if (isPhoto) const SizedBox(height: 6),
-          _labeledField('제목', _title, hintText: '제목을 입력하세요'),
-          const SizedBox(height: 6),
-          if (isPhoto)
-            _labeledField('장소', _placeController, hintText: '장소를 입력하세요')
-          else if (isManual)
-            _labeledField('장소', _placeController, hintText: '장소를 입력하세요')
-          else if (!isManual)
-            _detailValue(_place),
-          if (isEditableMemo) const SizedBox(height: 6),
-          if (isEditableMemo) ...[
-            TextField(
-              controller: _memo,
-              minLines: 4,
-              maxLines: 4,
-              style: const TextStyle(fontSize: 14),
-              decoration: const InputDecoration(
-                hintText: '메모를 입력하세요.',
-                hintStyle: TextStyle(color: Color(0xff8d8d73)),
-                contentPadding: EdgeInsets.all(10),
-                filled: true,
-                fillColor: Color(0xfffff3a3),
-                border: InputBorder.none,
+      content: SizedBox(
+        width: 280,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _timeValue(_dateTime(widget.entry.time)),
+            if (isPhoto) _photoPreview(),
+            if (isPhoto) const SizedBox(height: 6),
+            _labeledField('제목', _title, hintText: '제목을 입력하세요'),
+            const SizedBox(height: 6),
+            if (isPhoto)
+              _labeledField('장소', _placeController, hintText: '장소를 입력하세요')
+            else if (isManual)
+              _labeledField('장소', _placeController, hintText: '장소를 입력하세요')
+            else if (!isManual)
+              _detailValue(_place),
+            if (isEditableMemo) const SizedBox(height: 6),
+            if (isEditableMemo) ...[
+              TextField(
+                controller: _memo,
+                minLines: 4,
+                maxLines: 4,
+                style: const TextStyle(fontSize: 14),
+                decoration: const InputDecoration(
+                  hintText: '메모를 입력하세요.',
+                  hintStyle: TextStyle(color: Color(0xff8d8d73)),
+                  contentPadding: EdgeInsets.all(10),
+                  filled: true,
+                  fillColor: Color(0xfffff3a3),
+                  border: InputBorder.none,
+                ),
               ),
-            ),
-          ] else if (widget.entry.title == '메모')
-            _detailValue(widget.entry.detail),
-        ],
+            ] else if (widget.entry.title == '메모')
+              _detailValue(widget.entry.detail),
+          ],
+        ),
       ),
       actions: [
         TextButton(
@@ -2029,23 +2128,16 @@ class _RecordDetailDialogState extends State<_RecordDetailDialog> {
   }
 }
 
-class _EditMemoDialog extends StatefulWidget {
-  const _EditMemoDialog({this.initialMemo});
-
-  final String? initialMemo;
-
-  @override
-  State<_EditMemoDialog> createState() => _EditMemoDialogState();
-}
-
 class _ManualRecordDraft {
   const _ManualRecordDraft({
+    required this.recordedAt,
     required this.kind,
     required this.title,
     required this.place,
     required this.memo,
   });
 
+  final DateTime recordedAt;
   final String kind;
   final String title;
   final String place;
@@ -2060,7 +2152,8 @@ class _AddRecordDialog extends StatefulWidget {
 }
 
 class _AddRecordDialogState extends State<_AddRecordDialog> {
-  String _kind = 'payment';
+  final _recordedAt = DateTime.now();
+  String _kind = 'memo';
   final _title = TextEditingController();
   final _place = TextEditingController();
   final _memo = TextEditingController();
@@ -2073,33 +2166,116 @@ class _AddRecordDialogState extends State<_AddRecordDialog> {
     super.dispose();
   }
 
+  Widget _timeValue(String value) => Padding(
+    padding: const EdgeInsets.only(top: 6, bottom: 6),
+    child: Text(
+      value,
+      style: const TextStyle(fontSize: 13, color: Colors.black45),
+    ),
+  );
+
+  Widget _labeledField(
+    String label,
+    TextEditingController controller, {
+    String? hintText,
+  }) => Row(
+    children: [
+      SizedBox(
+        width: 52,
+        child: Text(
+          label,
+          style: const TextStyle(color: Color(0xff667085), fontSize: 14),
+        ),
+      ),
+      Expanded(
+        child: TextField(
+          controller: controller,
+          maxLines: 1,
+          style: const TextStyle(fontSize: 14),
+          decoration: InputDecoration(
+            hintText: hintText,
+            hintStyle: const TextStyle(fontSize: 14, color: Color(0xff9aa89a)),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 4,
+            ),
+            filled: true,
+            fillColor: const Color(0xffd9ecff),
+            border: InputBorder.none,
+          ),
+        ),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('여행 기록 추가'),
+    scrollable: true,
+    backgroundColor: Colors.white,
+    surfaceTintColor: Colors.transparent,
+    contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
     content: Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        DropdownButtonFormField<String>(
-          initialValue: _kind,
-          decoration: const InputDecoration(labelText: '종류'),
-          items: const [
-            DropdownMenuItem(value: 'payment', child: Text('결제')),
-            DropdownMenuItem(value: 'memo', child: Text('메모')),
+        _timeValue(_dateTime(_recordedAt)),
+        Row(
+          children: [
+            const SizedBox(
+              width: 52,
+              child: Text(
+                '종류',
+                style: TextStyle(color: Color(0xff667085), fontSize: 14),
+              ),
+            ),
+            Expanded(
+              child: SizedBox(
+                height: 25,
+                child: Container(
+                  color: const Color(0xffd9ecff),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _kind,
+                      isDense: true,
+                      isExpanded: true,
+                      style: const TextStyle(
+                        color: Colors.black87,
+                        fontSize: 14,
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'memo', child: Text('메모')),
+                        DropdownMenuItem(value: 'payment', child: Text('결제')),
+                        DropdownMenuItem(value: 'photo', child: Text('사진')),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _kind = value ?? 'memo'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
-          onChanged: (value) => setState(() => _kind = value ?? 'payment'),
         ),
-        TextField(
-          controller: _title,
-          decoration: const InputDecoration(labelText: '제목'),
-        ),
-        TextField(
-          controller: _place,
-          decoration: const InputDecoration(labelText: '장소'),
-        ),
+        const SizedBox(height: 6),
+        _labeledField('제목', _title, hintText: '제목을 입력하세요'),
+        const SizedBox(height: 6),
+        _labeledField('장소', _place, hintText: '장소를 입력하세요'),
+        const SizedBox(height: 6),
         TextField(
           controller: _memo,
-          maxLines: 3,
-          decoration: const InputDecoration(labelText: '메모'),
+          minLines: 4,
+          maxLines: 4,
+          style: const TextStyle(fontSize: 14),
+          decoration: const InputDecoration(
+            hintText: '메모를 입력하세요.',
+            hintStyle: TextStyle(color: Color(0xff8d8d73)),
+            contentPadding: EdgeInsets.all(10),
+            filled: true,
+            fillColor: Color(0xffd9ecff),
+            border: InputBorder.none,
+          ),
         ),
       ],
     ),
@@ -2112,6 +2288,7 @@ class _AddRecordDialogState extends State<_AddRecordDialog> {
         onPressed: () => Navigator.pop(
           context,
           _ManualRecordDraft(
+            recordedAt: _recordedAt,
             kind: _kind,
             title: _title.text,
             place: _place.text,
@@ -2124,25 +2301,129 @@ class _AddRecordDialogState extends State<_AddRecordDialog> {
   );
 }
 
-class _EditMemoDialogState extends State<_EditMemoDialog> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.initialMemo ?? '',
-  );
+class _PhotoPickerDialog extends StatefulWidget {
+  const _PhotoPickerDialog({required this.startDate, required this.endDate});
+
+  final DateTime startDate;
+  final DateTime endDate;
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  State<_PhotoPickerDialog> createState() => _PhotoPickerDialogState();
+}
+
+class _PhotoPickerDialogState extends State<_PhotoPickerDialog> {
+  List<AssetEntity> _assets = const [];
+  final Set<String> _selected = {};
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final permission = await PhotoManager.requestPermissionExtend();
+      if (!permission.hasAccess) throw Exception('사진 접근 권한을 허용해주세요.');
+      final paths = await PhotoManager.getAssetPathList(
+        onlyAll: true,
+        type: RequestType.image,
+      );
+      if (paths.isEmpty) throw Exception('사진첩을 찾을 수 없습니다.');
+      final album = paths.first;
+      final count = await album.assetCountAsync;
+      final assets = count == 0
+          ? <AssetEntity>[]
+          : await album.getAssetListRange(
+              start: 0,
+              end: count,
+              type: RequestType.image,
+            );
+      final start = DateTime(
+        widget.startDate.year,
+        widget.startDate.month,
+        widget.startDate.day,
+      );
+      final end = DateTime(
+        widget.endDate.year,
+        widget.endDate.month,
+        widget.endDate.day,
+      );
+      if (!mounted) return;
+      setState(() {
+        _assets = assets.where((asset) {
+          final created = DateTime(
+            asset.createDateTime.year,
+            asset.createDateTime.month,
+            asset.createDateTime.day,
+          );
+          return !created.isBefore(start) && !created.isAfter(end);
+        }).toList();
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.toString().replaceFirst('Exception: ', '');
+        _loading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('기록 수정'),
-    content: TextField(
-      controller: _controller,
-      autofocus: true,
-      decoration: const InputDecoration(labelText: '메모'),
-      maxLines: 3,
+    title: const Text('사진 선택'),
+    content: SizedBox(
+      width: 280,
+      height: 420,
+      child: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? Center(child: Text(_error!))
+          : GridView.builder(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 4,
+                mainAxisSpacing: 4,
+              ),
+              itemCount: _assets.length,
+              itemBuilder: (context, index) {
+                final asset = _assets[index];
+                final selected = _selected.contains(asset.id);
+                return GestureDetector(
+                  onTap: () => setState(() {
+                    if (selected) {
+                      _selected.remove(asset.id);
+                    } else {
+                      _selected.add(asset.id);
+                    }
+                  }),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      FutureBuilder<Uint8List?>(
+                        future: asset.thumbnailDataWithSize(
+                          const ThumbnailSize(240, 240),
+                        ),
+                        builder: (context, snapshot) => snapshot.data == null
+                            ? const ColoredBox(color: Colors.black12)
+                            : Image.memory(snapshot.data!, fit: BoxFit.cover),
+                      ),
+                      if (selected)
+                        const Align(
+                          alignment: Alignment.topRight,
+                          child: Padding(
+                            padding: EdgeInsets.all(4),
+                            child: Icon(Icons.check_circle, color: Colors.blue),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
     ),
     actions: [
       TextButton(
@@ -2150,8 +2431,13 @@ class _EditMemoDialogState extends State<_EditMemoDialog> {
         child: const Text('취소'),
       ),
       FilledButton(
-        onPressed: () => Navigator.pop(context, _controller.text),
-        child: const Text('저장'),
+        onPressed: _selected.isEmpty
+            ? null
+            : () => Navigator.pop(
+                context,
+                _assets.where((asset) => _selected.contains(asset.id)).toList(),
+              ),
+        child: const Text('선택'),
       ),
     ],
   );
@@ -2489,31 +2775,6 @@ class _TripMapState extends State<TripMap> {
 
   List<_NumberedMapRecord> get _numberedMapRecords {
     final records = <_NumberedMapRecord>[];
-    final points = [...widget.trip.routePoints]
-      ..sort((a, b) => a.recordedAt.compareTo(b.recordedAt));
-    final pointsByDate = <DateTime, List<RoutePoint>>{};
-    for (final point in points) {
-      pointsByDate
-          .putIfAbsent(_dateOnly(point.recordedAt), () => [])
-          .add(point);
-    }
-    for (final day in pointsByDate.keys.toList()..sort()) {
-      final dayPoints = pointsByDate[day]!;
-      for (final point in [
-        dayPoints.first,
-        if (dayPoints.length > 1) dayPoints.last,
-      ]) {
-        records.add(
-          _NumberedMapRecord(
-            time: point.recordedAt,
-            position: LatLng(
-              latitude: point.latitude,
-              longitude: point.longitude,
-            ),
-          ),
-        );
-      }
-    }
     final photos = [...widget.trip.photoMetadata]
       ..sort((a, b) => a.capturedAt.compareTo(b.capturedAt));
     PhotoMetadata? previous;
@@ -2726,6 +2987,27 @@ class _RoutePainter extends CustomPainter {
       oldDelegate.segments != segments;
 }
 
+Future<PhotoMetadata> _photoMetadataFromAsset(
+  AssetEntity asset,
+  List<RoutePoint> routePoints,
+) async {
+  final file = await asset.file;
+  final assetPosition = asset.latLng ?? await asset.latlngAsync();
+  final fallbackPosition = _nearestRoutePosition(
+    routePoints,
+    asset.createDateTime,
+  );
+  return PhotoMetadata(
+    assetId: asset.id,
+    capturedAt: asset.createDateTime,
+    filePath:
+        file?.path ?? '${asset.relativePath ?? ''}${asset.title ?? asset.id}',
+    latitude: assetPosition?.latitude ?? fallbackPosition?.latitude,
+    longitude: assetPosition?.longitude ?? fallbackPosition?.longitude,
+    mediaType: asset.type == AssetType.video ? 'video' : 'photo',
+  );
+}
+
 class PhotoGalleryPage extends StatefulWidget {
   const PhotoGalleryPage({super.key, required this.store, required this.trip});
 
@@ -2804,22 +3086,7 @@ class _PhotoGalleryPageState extends State<PhotoGalleryPage> {
     for (final asset in _assets.where(
       (asset) => _selected.contains(asset.id),
     )) {
-      final file = await asset.file;
-      final assetPosition = asset.latLng ?? await asset.latlngAsync();
-      final fallbackPosition = _nearestRoutePosition(
-        _trip.routePoints,
-        asset.createDateTime,
-      );
-      final photo = PhotoMetadata(
-        assetId: asset.id,
-        capturedAt: asset.createDateTime,
-        filePath:
-            file?.path ??
-            '${asset.relativePath ?? ''}${asset.title ?? asset.id}',
-        latitude: assetPosition?.latitude ?? fallbackPosition?.latitude,
-        longitude: assetPosition?.longitude ?? fallbackPosition?.longitude,
-        mediaType: asset.type == AssetType.video ? 'video' : 'photo',
-      );
+      final photo = await _photoMetadataFromAsset(asset, _trip.routePoints);
       final index = metadata.indexWhere((item) => item.assetId == asset.id);
       if (index == -1) {
         metadata.add(photo);
