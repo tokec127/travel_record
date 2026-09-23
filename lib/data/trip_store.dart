@@ -74,7 +74,10 @@ class TripStore {
               assetId: photo.assetId,
               capturedAt: photo.capturedAt,
               filePath: photo.filePath,
+              title: photo.title ?? previous.title,
               memo: previous.memo,
+              place: photo.place ?? previous.place,
+              mediaType: photo.mediaType ?? previous.mediaType,
               latitude: photo.latitude,
               longitude: photo.longitude,
             )
@@ -82,12 +85,18 @@ class TripStore {
     }
     photos.removeWhere((id, _) => hidden.contains(id));
 
-    final routeKeys = <String>{};
+    final routeIndexes = <String, int>{};
     final routePoints = <RoutePoint>[];
     for (final point in [...current.routePoints, ...incoming.routePoints]) {
       final key =
           '${point.recordedAt.toIso8601String()}|${point.latitude}|${point.longitude}';
-      if (routeKeys.add(key)) routePoints.add(point);
+      final index = routeIndexes[key];
+      if (index == null) {
+        routeIndexes[key] = routePoints.length;
+        routePoints.add(point);
+      } else {
+        routePoints[index] = point;
+      }
     }
     routePoints.sort((a, b) => a.recordedAt.compareTo(b.recordedAt));
 
@@ -98,6 +107,12 @@ class TripStore {
     for (final record in incoming.weatherRecords) {
       weatherByDate[record.date.toIso8601String().substring(0, 10)] = record;
     }
+    final manualById = <String, ManualRecord>{
+      for (final record in current.manualRecords) record.id: record,
+    };
+    for (final record in incoming.manualRecords) {
+      manualById[record.id] = record;
+    }
 
     return incoming.copyWith(
       routePoints: routePoints,
@@ -106,6 +121,7 @@ class TripStore {
       weatherSummary: incoming.weatherSummary ?? current.weatherSummary,
       weatherDate: incoming.weatherDate ?? current.weatherDate,
       weatherRecords: weatherByDate.values.toList(),
+      manualRecords: manualById.values.toList(),
     );
   }
 }

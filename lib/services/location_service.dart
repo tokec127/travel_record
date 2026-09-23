@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
-  static const autoCollectionInterval = Duration(minutes: 5);
+  static const defaultCollectionInterval = Duration(minutes: 10);
   StreamSubscription<Position>? _automaticSubscription;
 
   Future<RouteLocation> currentLocation() async {
@@ -51,6 +51,7 @@ class LocationService {
   Future<void> startAutomaticCollection({
     required void Function(RouteLocation location) onLocation,
     bool background = false,
+    Duration interval = defaultCollectionInterval,
   }) async {
     if (background) {
       await ensureBackgroundPermission();
@@ -63,11 +64,11 @@ class LocationService {
     if (defaultTargetPlatform == TargetPlatform.android) {
       settings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        intervalDuration: autoCollectionInterval,
+        intervalDuration: interval,
         foregroundNotificationConfig: background
             ? const ForegroundNotificationConfig(
                 notificationTitle: '여행기록 위치 수집 중',
-                notificationText: '여행 기간 동안 5분 간격으로 위치를 저장합니다.',
+                notificationText: '여행 기간 동안 설정된 간격으로 위치를 저장합니다.',
                 enableWakeLock: false,
               )
             : null,

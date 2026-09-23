@@ -9,6 +9,7 @@
 | v1.2 | 2026-09-23 | tokec | 현재 Flutter Android 구현과 검증 결과 반영 |
 | v1.3 | 2026-09-23 | tokec | Firebase 토큰 검증·Firestore 백엔드 API 구현 상태 반영 |
 | v1.4 | 2026-09-25 | tokec | Android 카카오지도 경로·마커 표시 완료와 Flutter 원격 기능 미연결 상태 반영 |
+| v1.5 | 2026-09-25 | tokec | 위치 수집 간격 설정 입력·저장과 기본 10분 적용 상태 반영 |
 
 ## 1. 계획 기준
 
@@ -22,7 +23,7 @@
 
 ### 현재 구현 상태
 
-- 완료: Flutter 앱 골격, Android 로컬 인증, 10분 백그라운드 복귀 재인증, 여행 생성·로컬 저장, 5분 기본 GPS 자동 수집, 사진 기간 grid·메타데이터 관리, WWIS 날씨 저장, Android Kakao 지도 상태별 중심·축척, 네이티브 날짜별 폴리라인·기록 마커, 지도 핀치·드래그·현재 위치 이동
+- 완료: Flutter 앱 골격, Android 로컬 인증, 10분 백그라운드 복귀 재인증, 여행 생성·로컬 저장, 설정 가능한 GPS 자동 수집(기본 10분), 사진 기간 grid·메타데이터 관리, WWIS 날씨 저장, Android Kakao 지도 상태별 중심·축척, 네이티브 날짜별 폴리라인·기록 마커, 지도 핀치·드래그·현재 위치 이동
 - 부분 완료: 지도는 현재 Android 카카오지도만 구현했으며, 해외 Google Map 전환과 iOS 경로 폴리라인은 후속 과제다. 독립 메모·결제·검색·동영상·폴더 파일 첨부도 후속 범위다.
 - 미완료: Flutter 클라이언트의 Firebase 인증·백엔드 API 연결, Google Drive·SNS·주변 기기 실제 전송, 배터리 한도 설정의 실제 적용, iOS 실기기 검증
 - 검증 완료: `dart analyze lib/main.dart`, `flutter test test/widget_test.dart`, Android debug APK 빌드가 통과했다. 전체 `flutter analyze`에는 vendored Kakao 예제의 누락 의존성 오류가 남아 있다.

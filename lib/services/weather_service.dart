@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import '../models/trip.dart';
 
@@ -23,6 +24,10 @@ class WeatherService {
     }
     final city = _findCity(cities, trip);
     if (city == null) return null;
+
+    if (_dateOnly(date).isBefore(_dateOnly(DateTime.now()))) {
+      return await _fetchHistoricalRecord(city, date);
+    }
 
     final client = HttpClient();
     try {
@@ -73,11 +78,98 @@ class WeatherService {
         weather: '$weather$dateLabel$proxyLabel',
         minimumTemperature: double.tryParse(min ?? ''),
         maximumTemperature: double.tryParse(max ?? ''),
+        morningWeather: weather,
+        afternoonWeather: weather,
       );
     } finally {
       client.close(force: true);
     }
   }
+
+  Future<WeatherRecord?> _fetchHistoricalRecord(
+    _WwisCity city,
+    DateTime date,
+  ) async {
+    final coordinates = _coordinates[city.name];
+    if (coordinates == null) return null;
+    final day = _formatDate(date);
+    final client = HttpClient();
+    try {
+      final uri = Uri.https('archive-api.open-meteo.com', '/v1/archive', {
+        'latitude': '${coordinates.$1}',
+        'longitude': '${coordinates.$2}',
+        'start_date': day,
+        'end_date': day,
+        'hourly': 'weather_code,temperature_2m',
+        'timezone': 'auto',
+      });
+      final response = await (await client.getUrl(uri))
+          .close()
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != HttpStatus.ok) return null;
+      final json = jsonDecode(
+        await response.transform(utf8.decoder).join(),
+      ) as Map<String, dynamic>;
+      final hourly = json['hourly'] as Map<String, dynamic>?;
+      final times = (hourly?['time'] as List<dynamic>?)?.cast<String>();
+      final codes = (hourly?['weather_code'] as List<dynamic>?)
+          ?.map((value) => (value as num).toInt())
+          .toList();
+      final temperatures = (hourly?['temperature_2m'] as List<dynamic>?)
+          ?.whereType<num>()
+          .map((value) => value.toDouble())
+          .toList();
+      if (times == null || codes == null || times.isEmpty || codes.isEmpty) {
+        return null;
+      }
+      int codeAt(int hour) {
+        var best = 0;
+        var difference = 24;
+        for (
+          var index = 0;
+          index < times.length && index < codes.length;
+          index++
+        ) {
+          final parsed = DateTime.tryParse(times[index]);
+          if (parsed == null || parsed.day != date.day) continue;
+          final currentDifference = (parsed.hour - hour).abs();
+          if (currentDifference < difference) {
+            best = codes[index];
+            difference = currentDifference;
+          }
+        }
+        return best;
+      }
+
+      final min = temperatures == null || temperatures.isEmpty
+          ? null
+          : temperatures.reduce((a, b) => math.min(a, b).toDouble());
+      final max = temperatures == null || temperatures.isEmpty
+          ? null
+          : temperatures.reduce((a, b) => math.max(a, b).toDouble());
+      return WeatherRecord(
+        date: date,
+        weather: _weatherName(codeAt(12)),
+        minimumTemperature: min,
+        maximumTemperature: max,
+        morningWeather: _weatherName(codeAt(9)),
+        afternoonWeather: _weatherName(codeAt(15)),
+        source: '과거 날씨',
+      );
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  String _formatDate(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  DateTime _dateOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
 
   Future<WeatherRecord> _fetchTodayFallback(
     _WwisCity city,

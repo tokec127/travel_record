@@ -4,18 +4,21 @@ class RoutePoint {
     required this.latitude,
     required this.longitude,
     required this.accuracy,
+    this.memo,
   });
 
   final DateTime recordedAt;
   final double latitude;
   final double longitude;
   final double accuracy;
+  final String? memo;
 
   Map<String, Object?> toJson() => {
     'recordedAt': recordedAt.toIso8601String(),
     'latitude': latitude,
     'longitude': longitude,
     'accuracy': accuracy,
+    'memo': memo,
   };
 
   factory RoutePoint.fromJson(Map<String, dynamic> json) => RoutePoint(
@@ -23,6 +26,7 @@ class RoutePoint {
     latitude: (json['latitude'] as num).toDouble(),
     longitude: (json['longitude'] as num).toDouble(),
     accuracy: (json['accuracy'] as num).toDouble(),
+    memo: json['memo'] as String?,
   );
 }
 
@@ -31,7 +35,10 @@ class PhotoMetadata {
     required this.assetId,
     required this.capturedAt,
     required this.filePath,
+    this.title,
     this.memo,
+    this.place,
+    this.mediaType,
     this.latitude,
     this.longitude,
   });
@@ -39,7 +46,10 @@ class PhotoMetadata {
   final String assetId;
   final DateTime capturedAt;
   final String filePath;
+  final String? title;
   final String? memo;
+  final String? place;
+  final String? mediaType;
   final double? latitude;
   final double? longitude;
 
@@ -47,7 +57,10 @@ class PhotoMetadata {
     'assetId': assetId,
     'capturedAt': capturedAt.toIso8601String(),
     'filePath': filePath,
+    'title': title,
     'memo': memo,
+    'place': place,
+    'mediaType': mediaType,
     'latitude': latitude,
     'longitude': longitude,
   };
@@ -56,7 +69,10 @@ class PhotoMetadata {
     assetId: json['assetId'] as String,
     capturedAt: DateTime.parse(json['capturedAt'] as String),
     filePath: json['filePath'] as String,
+    title: json['title'] as String?,
     memo: json['memo'] as String?,
+    place: json['place'] as String?,
+    mediaType: json['mediaType'] as String?,
     latitude: (json['latitude'] as num?)?.toDouble(),
     longitude: (json['longitude'] as num?)?.toDouble(),
   );
@@ -68,6 +84,8 @@ class WeatherRecord {
     required this.weather,
     this.minimumTemperature,
     this.maximumTemperature,
+    this.morningWeather,
+    this.afternoonWeather,
     this.source = 'WWIS',
   });
 
@@ -75,7 +93,12 @@ class WeatherRecord {
   final String weather;
   final double? minimumTemperature;
   final double? maximumTemperature;
+  final String? morningWeather;
+  final String? afternoonWeather;
   final String source;
+
+  String weatherAt(DateTime time) =>
+      time.hour < 12 ? morningWeather ?? weather : afternoonWeather ?? weather;
 
   String get summary {
     final temperature = minimumTemperature == null || maximumTemperature == null
@@ -89,6 +112,8 @@ class WeatherRecord {
     'weather': weather,
     'minimumTemperature': minimumTemperature,
     'maximumTemperature': maximumTemperature,
+    'morningWeather': morningWeather,
+    'afternoonWeather': afternoonWeather,
     'source': source,
   };
 
@@ -97,7 +122,45 @@ class WeatherRecord {
     weather: json['weather'] as String,
     minimumTemperature: (json['minimumTemperature'] as num?)?.toDouble(),
     maximumTemperature: (json['maximumTemperature'] as num?)?.toDouble(),
+    morningWeather: json['morningWeather'] as String?,
+    afternoonWeather: json['afternoonWeather'] as String?,
     source: json['source'] as String? ?? 'WWIS',
+  );
+}
+
+class ManualRecord {
+  const ManualRecord({
+    required this.id,
+    required this.recordedAt,
+    required this.kind,
+    required this.title,
+    required this.memo,
+    this.place,
+  });
+
+  final String id;
+  final DateTime recordedAt;
+  final String kind;
+  final String title;
+  final String memo;
+  final String? place;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'recordedAt': recordedAt.toIso8601String(),
+    'kind': kind,
+    'title': title,
+    'memo': memo,
+    'place': place,
+  };
+
+  factory ManualRecord.fromJson(Map<String, dynamic> json) => ManualRecord(
+    id: json['id'] as String,
+    recordedAt: DateTime.parse(json['recordedAt'] as String),
+    kind: json['kind'] as String,
+    title: json['title'] as String? ?? '',
+    memo: json['memo'] as String? ?? '',
+    place: json['place'] as String?,
   );
 }
 
@@ -115,6 +178,7 @@ class Trip {
     this.weatherSummary,
     this.weatherDate,
     this.weatherRecords = const [],
+    this.manualRecords = const [],
   });
 
   final String id;
@@ -129,6 +193,7 @@ class Trip {
   final String? weatherSummary;
   final DateTime? weatherDate;
   final List<WeatherRecord> weatherRecords;
+  final List<ManualRecord> manualRecords;
 
   Trip copyWith({
     List<RoutePoint>? routePoints,
@@ -138,6 +203,7 @@ class Trip {
     String? weatherSummary,
     DateTime? weatherDate,
     List<WeatherRecord>? weatherRecords,
+    List<ManualRecord>? manualRecords,
   }) => Trip(
     id: id,
     regionType: regionType,
@@ -151,6 +217,7 @@ class Trip {
     weatherSummary: weatherSummary ?? this.weatherSummary,
     weatherDate: weatherDate ?? this.weatherDate,
     weatherRecords: weatherRecords ?? this.weatherRecords,
+    manualRecords: manualRecords ?? this.manualRecords,
   );
 
   Map<String, Object?> toJson() => {
@@ -166,6 +233,7 @@ class Trip {
     'weatherSummary': weatherSummary,
     'weatherDate': weatherDate?.toIso8601String(),
     'weatherRecords': weatherRecords.map((item) => item.toJson()).toList(),
+    'manualRecords': manualRecords.map((item) => item.toJson()).toList(),
   };
 
   factory Trip.fromJson(Map<String, dynamic> json) => Trip(
@@ -189,6 +257,9 @@ class Trip {
         : DateTime.parse(json['weatherDate'] as String),
     weatherRecords: (json['weatherRecords'] as List<dynamic>? ?? [])
         .map((item) => WeatherRecord.fromJson(item as Map<String, dynamic>))
+        .toList(),
+    manualRecords: (json['manualRecords'] as List<dynamic>? ?? [])
+        .map((item) => ManualRecord.fromJson(item as Map<String, dynamic>))
         .toList(),
   );
 }
