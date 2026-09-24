@@ -39,6 +39,28 @@
 | v3.12 | 2026-09-26 | Codex | 오늘 날씨가 비로 표시된 원인 분석 및 현재 날씨 우선 갱신 조치 추가 |
 | v3.13 | 2026-09-26 | Codex | 추가 팝업 사진 선택과 밝은 파란색 입력 배경 검증 추가 |
 | v3.14 | 2026-09-24 | Codex | 최신 구현 기준으로 문서 간 내용 정합성 검토·갱신 |
+| v3.15 | 2026-09-24 | Codex | 시작 카드의 10m 이동 기준 시각 보정 및 검증 추가 |
+| v3.16 | 2026-09-24 | Codex | 종료 카드의 마지막 GPS 기준 10m 이전 지점 보정 및 검증 추가 |
+| v3.17 | 2026-09-24 | Codex | 여행카드·지도 순번 불일치 원인 분석 및 공통 순번 반영 |
+| v3.18 | 2026-09-24 | Codex | 여행기록 목록의 종료 카드 제거 및 검증 추가 |
+| v3.19 | 2026-09-24 | Codex | 시작 카드 제목 날짜 표시 및 검증 추가 |
+| v3.20 | 2026-09-24 | Codex | 시작 카드 터치 시 해당일 카드 표시·숨김 토글 검증 추가 |
+| v3.21 | 2026-09-24 | Codex | 접힌 날짜의 지도 순번 마크 숨김·복원 검증 추가 |
+| v3.22 | 2026-09-24 | Codex | 기본 접힘·펼친 날짜 기준 지도 범위·경로 색상 검증 추가 |
+| v3.23 | 2026-09-24 | Codex | 여행 상세 지도 세로 높이 120% 확대 검증 추가 |
+| v3.24 | 2026-09-24 | Codex | 지도와 여행카드 목록 사이 간격 검증 추가 |
+| v3.25 | 2026-09-24 | Codex | 여행 상태별 상단 날씨·요약·준비 카드 검증 추가 |
+| v3.26 | 2026-09-24 | Codex | 진행 중 여행의 날씨·여행준비 카드 swipe 검증 추가 |
+| v3.27 | 2026-09-24 | Codex | 상세 페이지 선택 모드의 시작 카드 선택 표시 검증 추가 |
+| v3.28 | 2026-09-24 | Codex | 시작 카드 선택 시 수정만 허용하고 삭제 제외 검증 추가 |
+| v3.29 | 2026-09-24 | Codex | 사진 팝업 썸네일 터치 갤러리 연동 검증 추가 |
+| v3.30 | 2026-09-24 | Codex | 사진 팝업 썸네일 길게 누르기 선택·부분 삭제 검증 추가 |
+| v3.31 | 2026-09-24 | Codex | 썸네일 선택삭제 상태의 짧은 터치 선택 검증 추가 |
+| v3.32 | 2026-09-24 | Codex | 동일그룹 갤러리 사진 좌우 넘김 정보 전달 검증 추가 |
+| v3.33 | 2026-09-24 | Codex | 외부 갤러리 다중 URI 미지원 원인 분석 및 내부 swipe 뷰어 적용 |
+| v3.34 | 2026-09-24 | Codex | 여행준비 항목별 Android 파일 선택·저장 검증 추가 |
+| v3.35 | 2026-09-24 | Codex | 여행준비 카드 2행 배치와 기존 세로 높이 검증 추가 |
+| v3.36 | 2026-09-24 | Codex | 여행준비 카드 3개 항목과 파일 뷰어 검증 추가 |
 
 ## 오류 리포트
 
@@ -235,6 +257,174 @@
 | 진단 | 추가 팝업의 종류 분기와 갤러리 선택 흐름이 사진 기록을 지원하지 않았고, 입력 영역 색상이 상세 팝업 스타일에 고정되어 있었다. |
 | 조치 | `사진` 종류를 추가하고 선택 시 여행기간 갤러리에서 여러 장을 고르는 선택창을 연결했다. 선택 사진은 제목·장소·메모와 함께 여행카드로 저장하며, 종류·제목·장소·메모 영역을 밝은 파란색으로 변경했다. |
 | 검증 | `flutter test test/widget_test.dart` 전체 통과, `flutter analyze lib/main.dart lib/services/weather_service.dart`는 기존 정보 2건만 보고, debug APK 빌드 성공 및 `R3CX50EGAMR` 재설치 성공. |
+
+### 26. 시작 카드 시각이 당일 첫 GPS 좌표로 고정됨
+
+| 현상 | GPS 수집 시작 직후 위치가 안정되기 전의 첫 좌표 시각이 `시작` 카드에 표시되었다. |
+|---|---|
+| 진단 | 날짜별 GPS 목록의 가장 이른 좌표를 바로 `시작` 카드로 사용하고 있어, 첫 좌표에서 실제 이동이 발생한 시점을 반영하지 못했다. |
+| 조치 | 당일 첫 GPS 좌표를 기준점으로 삼고, 기준점에서 10m 이상 떨어진 첫 좌표의 시각·위치를 `시작` 카드에 사용하도록 수정했다. 10m 이상 이동한 좌표가 없으면 기존 첫 좌표를 사용하며, `종료` 카드는 마지막 좌표를 유지한다. |
+| 검증 | `dart format lib/main.dart` 및 `flutter test test/widget_test.dart` 실행 후 `flutter analyze lib/main.dart`로 확인한다. |
+
+### 27. 종료 카드 시각이 당일 마지막 GPS 좌표로 고정됨
+
+| 현상 | GPS 수집 종료 직후 위치가 안정되기 전의 마지막 좌표 시각이 `종료` 카드에 표시되었다. |
+|---|---|
+| 진단 | 날짜별 GPS 목록의 가장 늦은 좌표를 바로 `종료` 카드로 사용해, 마지막 좌표에서 실제로 10m 이상 벗어난 과거 시점을 반영하지 못했다. |
+| 조치 | 당일 마지막 GPS 좌표를 기준점으로 삼고, 시간 역순으로 기준점에서 10m 이상 떨어진 첫 과거 좌표의 시각·위치를 `종료` 카드에 사용하도록 수정했다. 해당 좌표가 없으면 마지막 GPS 좌표를 사용한다. |
+| 검증 | `dart format lib/main.dart` 및 `flutter test test/widget_test.dart` 실행 후 `flutter analyze lib/main.dart`로 확인한다. |
+
+### 28. 여행카드 순번과 지도 순번 불일치
+
+| 현상 | 여행카드 목록의 순번과 지도에 표시된 순번이 서로 다르게 표시되었다. |
+|---|---|
+| 진단 | 여행카드는 사진 그룹·수동 메모·결제를 모두 포함해 순번을 계산했지만, 지도는 위치가 있는 사진 그룹만 별도로 1번부터 다시 번호를 매겼다. 위치 없는 사진이나 수동 기록이 앞에 있으면 지도 번호가 당겨지는 구조였다. |
+| 조치 | 지도도 사진 그룹과 수동 기록을 포함한 전체 기록 순번을 계산하도록 통일하고, 실제 위치가 있는 사진 그룹만 해당 여행카드 순번으로 지도 마커를 표시하도록 수정했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 29. 여행기록 목록에서 종료 카드 제거
+
+| 현상 | 여행기록 목록에 종료 카드가 표시되었다. |
+|---|---|
+| 조치 | 종료 GPS 데이터와 지도 경로는 유지하고, 여행기록 타임라인에서 종료 카드 생성만 제거했다. 시작 카드는 기존 기준으로 유지한다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 30. 시작 카드 제목 날짜 표시
+
+| 현상 | 시작 카드 제목이 날짜 없이 `시작`으로 표시되었다. |
+|---|---|
+| 조치 | 시작 카드 제목을 `시작(년/월/일)` 형식으로 변경했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 31. 시작 카드 편집 팝업 대신 해당일 카드 토글
+
+| 현상 | 시작 카드를 눌렀을 때 일반 여행카드와 동일하게 편집 팝업이 열렸다. |
+|---|---|
+| 조치 | 시작 카드 터치 시 편집 팝업을 열지 않고 해당 날짜의 시작 카드는 유지한 채 나머지 여행카드와 날씨 카드를 숨기거나 다시 표시하도록 토글 기능을 추가했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 32. 접힌 날짜의 지도 순번 마크 잔류
+
+| 현상 | 여행카드를 접어 목록에서 숨겨도 해당 날짜의 지도 순번 마크가 남아 있었다. |
+|---|---|
+| 조치 | 접힘 날짜를 지도 위젯에 전달하고, 해당 날짜의 순번 마커만 숨겼다. 여행경로 선과 전체 순번 계산은 유지해 날짜를 다시 펼치면 기존 번호로 마커를 복원한다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 33. 기본 접힘 및 펼친 날짜 기준 지도 표시
+
+| 현상 | 여행기록이 기본 펼침 상태였고, 지도 경로 색상·범위가 펼친 날짜와 일치하지 않았다. |
+|---|---|
+| 조치 | 기록이 있는 날짜를 기본 접힘으로 초기화했다. 펼친 날짜가 하나면 해당 날짜 경로, 여러 개면 해당 날짜들의 경로를 지도 범위 조정에 사용한다. 모든 날짜가 접히면 전체 경로를 사용하며, 경로 색상은 카드 날짜 순번 색상을 25% 어둡게 표시한다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 34. 여행 상세 지도 세로 높이 확대
+
+| 현상 | 여행 상세 지도 세로 영역이 좁아 경로 확인이 어려웠다. |
+|---|---|
+| 조치 | 지도 높이를 174px에서 210px로 변경해 기존 대비 약 120%로 확대하고, 내부 기본 지도 크기도 동일하게 조정했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 35. 지도와 여행카드 목록 간격 부족
+
+| 현상 | 지도와 여행카드 목록이 바로 붙어 표시되었다. |
+|---|---|
+| 조치 | 지도와 여행카드 목록 사이에 8px 세로 간격을 추가했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 36. 여행 상태별 상단 정보 카드 미구분
+
+| 현상 | 여행 상태와 관계없이 날씨 카드만 표시되고, 카드 접힘 상태에서 오늘 날씨도 함께 숨겨질 수 있었다. |
+|---|---|
+| 조치 | 여행 중에는 오늘 날씨를 상단에 항상 표시하고, 지난 여행은 여행기간·도시·나라 요약 카드, 계획 중인 여행은 여권·숙소·항공권·환전 준비 카드로 대체했다. 상단 정보 카드는 날짜 접힘 필터에서 제외했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 37. 진행 중 여행의 날씨·여행준비 카드 전환
+
+| 현상 | 진행 중 여행의 날씨 카드 위치에서 여행준비 정보를 전환해 볼 수 없었다. |
+|---|---|
+| 조치 | 진행 중 여행의 상단 정보 위치를 `PageView`로 구성해 날씨 카드를 첫 페이지로 표시하고 좌우 swipe 시 여행준비 카드로 전환하도록 수정했다. 지난 여행·계획 중 여행의 요약·준비 카드는 기존 고정 표시를 유지한다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 38. 상세 페이지 선택 모드에서 시작 카드 선택 표시 누락
+
+| 현상 | 상세 페이지에서 `...`을 눌러 선택 모드로 전환해도 시작 카드에는 선택 표시가 나타나지 않았다. |
+|---|---|
+| 진단 | 시작 카드 타임라인 항목에 선택용 ID가 없어 선택 터치와 체크 표시 조건을 통과하지 못했다. |
+| 조치 | 시작 카드에 날짜·시각 기반 내부 ID를 부여해 선택 모드에서 체크 표시와 선택 동작을 활성화했다. 선택된 시작 카드는 GPS 삭제 대상에는 포함하지 않는다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 39. 시작 카드 선택 시 삭제 제한
+
+| 현상 | 시작 카드 선택 후 삭제 동작과 수정 동작의 구분이 없었다. |
+|---|---|
+| 조치 | 시작 카드 선택 시 헤더에 수정 아이콘을 표시하고 기존 팝업을 열도록 했다. 삭제 대상 계산에서는 시작 카드를 제외해 시작 GPS 데이터가 삭제되지 않도록 수정했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 40. 사진 팝업 썸네일 갤러리 연동
+
+| 현상 | 사진·동영상 상세 팝업의 썸네일을 눌러도 원본 사진을 갤러리 앱에서 열 수 없었다. |
+|---|---|
+| 조치 | 썸네일 터치 시 `photo_manager`의 원본 파일을 Android `FileProvider` URI로 전달하고 기본 갤러리 앱의 `ACTION_VIEW`로 열도록 연동했다. 동영상은 `video/*`, 사진은 `image/*` MIME 유형을 사용한다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `flutter build apk --debug`, `git diff --check`를 실행한다. |
+
+### 41. 사진 팝업 썸네일 선택 삭제
+
+| 현상 | 동일그룹 사진 팝업에서 일부 사진만 선택해 여행기록에서 삭제할 수 없었다. |
+|---|---|
+| 조치 | 썸네일을 길게 누르면 선택 표시를 보여주고, `선택 삭제` 시 선택한 사진의 메타데이터만 숨기도록 수정했다. 원본 갤러리 파일은 삭제하지 않는다. 선택하지 않은 동일그룹 사진은 유지한다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 42. 썸네일 선택삭제 상태의 짧은 터치 동작
+
+| 현상 | 썸네일을 길게 눌러 선택삭제 상태가 된 뒤에도 짧은 터치가 갤러리 실행으로 동작했다. |
+|---|---|
+| 조치 | 선택된 썸네일이 하나라도 있으면 짧은 터치를 선택·선택 해제로 처리하고, 선택 상태가 아닐 때만 갤러리 앱을 열도록 수정했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `git diff --check`를 실행한다. |
+
+### 43. 동일그룹 갤러리 사진 좌우 넘김
+
+| 현상 | 동일그룹 썸네일을 갤러리로 열어도 선택한 사진 한 장만 전달되어 그룹 내 좌우 넘김이 되지 않았다. |
+|---|---|
+| 조치 | 동일그룹 전체 원본 파일을 `ACTION_VIEW`의 URI 목록과 `ClipData`로 함께 전달하고, 터치한 사진의 시작 위치를 전달하도록 수정했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `flutter build apk --debug`, `git diff --check`를 실행한다. |
+
+### 44. 외부 갤러리에서 동일그룹 사진 전환 불가
+
+| 현상 | 동일그룹 사진을 외부 갤러리로 열어도 좌우 swipe로 사진이 전환되지 않았다. |
+|---|---|
+| 진단 | Android 외부 갤러리 앱이 `ACTION_VIEW`의 다중 `EXTRA_STREAM`·`ClipData`를 앱마다 다르게 처리하거나 첫 URI만 표시했다. |
+| 조치 | 외부 갤러리 의존을 제거하고 앱 내부 `PageView` 사진 뷰어를 추가했다. 동일그룹 전체 사진을 전달하고 터치한 사진부터 좌우 swipe로 전환한다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `flutter build apk --debug`, `git diff --check`를 실행한다. |
+
+### 45. 동일그룹 내부 사진 뷰어 swipe 미동작 재조치
+
+| 현상 | 동일그룹 썸네일을 눌러 내부 사진 뷰어를 열어도 좌우 swipe가 안정적으로 동작하지 않았다. |
+|---|---|
+| 진단 | `showDialog`가 제공하는 모달 라우트 안에서 다시 `Dialog`를 중첩 생성해 사진 뷰어의 전체 화면 제스처 영역이 불필요하게 중첩되었다. |
+| 조치 | 중첩 `Dialog`를 제거하고 모달 라우트의 전체 영역을 `Material`과 `PageView`가 직접 사용하도록 수정했다. `PageScrollPhysics`를 명시해 동일그룹 사진 간 좌우 전환을 유지했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart`, `flutter build apk --debug`, `git diff --check`를 실행한다. |
+
+### 46. 여행준비 항목 파일 선택 기능 누락
+
+| 현상 | 여행준비 카드의 여권·숙소·항공권·환전 항목을 눌러도 파일을 검색하거나 선택할 수 없었다. |
+|---|---|
+| 진단 | 준비 카드가 단순 텍스트 `Wrap`으로만 구성되어 있었고, 파일 선택 호출 및 여행 모델 저장 필드가 없었다. |
+| 조치 | 각 항목을 터치 가능한 영역으로 변경하고 Android `ACTION_OPEN_DOCUMENT` 파일 선택창을 연결했다. 선택한 파일의 이름과 URI를 여행 데이터에 저장하고 카드에는 첨부 아이콘을 표시한다. 새 저장 필드가 없는 기존 데이터도 빈 값으로 읽도록 하위 호환 처리했다. |
+| 검증 | `dart format lib/main.dart lib/models/trip.dart`, `flutter test test/widget_test.dart`, `flutter analyze lib/main.dart lib/models/trip.dart`, `flutter build apk --debug`, `git diff --check`를 실행한다. |
+
+### 47. 여행준비 카드 세로 여백 과다
+
+| 현상 | 여행준비 카드가 파일명 표시를 위해 기존보다 높아지고 항목이 한 줄에 배치되었다. |
+|---|---|
+| 조치 | 카드 높이를 기존 76px로 유지하고 여권·숙소·항공권·환전을 2행으로 배치했다. 날씨·여행요약·여행준비 카드의 외부 세로 마진은 0으로 유지하고 내부 상하 패딩을 최소화했다. |
+| 검증 | `dart format lib/main.dart`, `flutter test test/widget_test.dart`, `flutter build apk --debug`, `git diff --check`를 실행한다. |
+
+### 48. 여행준비 카드 항목 및 파일 열기 동작 변경
+
+| 현상 | 여행준비 카드에 환전 항목이 남아 있고, 선택된 파일도 다시 파일 선택창을 여는 동작이었다. |
+|---|---|
+| 조치 | 1행에는 `여행준비`, 2행에는 여권·숙소·항공권만 표시하도록 변경했다. 파일이 없으면 `+`로 Android 파일 선택창을 열고, 파일이 있으면 클립 아이콘으로 Android 기본 파일 뷰어를 열도록 수정했다. |
+| 검증 | `dart format lib/main.dart lib/models/trip.dart`, `flutter test test/widget_test.dart`, `flutter build apk --debug`, `git diff --check`를 실행한다. |
 
 ## 기록 규칙
 

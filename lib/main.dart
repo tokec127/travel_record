@@ -779,6 +779,7 @@ class TripDetailPage extends StatefulWidget {
 class _TripDetailPageState extends State<TripDetailPage>
     with WidgetsBindingObserver {
   static const _recordAccent = Color(0xff64b5f6);
+  static const _fileChannel = MethodChannel('travel_record/files');
   final _locationService = LocationService();
   final _weatherService = WeatherService();
   late Trip _trip;
@@ -788,12 +789,14 @@ class _TripDetailPageState extends State<TripDetailPage>
   bool _recordDialogOpen = false;
   bool _photoSyncing = false;
   final Set<String> _selectedRecordIds = {};
+  final Set<DateTime> _collapsedDates = {};
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _trip = widget.trip;
+    _collapsedDates.addAll(_recordDates(_trip));
     _loadLatestTrip().then((_) async {
       await _syncPhotos();
       await _loadWeather();
@@ -858,6 +861,29 @@ class _TripDetailPageState extends State<TripDetailPage>
     }
   }
 
+  Future<void> _pickPreparationFile(String key) async {
+    final selected = _trip.preparationFiles[key];
+    if (selected != null) {
+      await _fileChannel.invokeMethod<void>('openFile', {'uri': selected.uri});
+      return;
+    }
+    final result = await _fileChannel.invokeMethod<Map<Object?, Object?>>(
+      'pickFile',
+    );
+    if (!mounted || result == null) return;
+    final name = result['name'] as String?;
+    final uri = result['uri'] as String?;
+    if (name == null || uri == null) return;
+    _trip = _trip.copyWith(
+      preparationFiles: {
+        ..._trip.preparationFiles,
+        key: PreparationFile(name: name, uri: uri),
+      },
+    );
+    await widget.store.save(_trip);
+    if (mounted) setState(() {});
+  }
+
   Future<void> _loadLatestTrip() async {
     final trips = await widget.store.readAll();
     final latest = trips.where((trip) => trip.id == widget.trip.id).firstOrNull;
@@ -887,8 +913,19 @@ class _TripDetailPageState extends State<TripDetailPage>
     }
     final updated = changed ? latest.copyWith(photoMetadata: photos) : latest;
     if (changed) await widget.store.save(updated);
-    if (mounted) setState(() => _trip = updated);
+    if (mounted) {
+      setState(() {
+        _trip = updated;
+        _collapsedDates.addAll(_recordDates(updated));
+      });
+    }
   }
+
+  Set<DateTime> _recordDates(Trip trip) => {
+    ...trip.routePoints.map((point) => _dateOnly(point.recordedAt)),
+    ...trip.photoMetadata.map((photo) => _dateOnly(photo.capturedAt)),
+    ...trip.manualRecords.map((record) => _dateOnly(record.recordedAt)),
+  };
 
   Future<void> _loadWeather() async {
     final targetDate = _weatherTargetDate;
@@ -958,6 +995,15 @@ class _TripDetailPageState extends State<TripDetailPage>
     }
     return _weatherStatus;
   }
+
+  bool get _isPastTrip =>
+      _dateOnly(DateTime.now()).isAfter(_dateOnly(_trip.endDate));
+
+  bool get _isFutureTrip =>
+      _dateOnly(DateTime.now()).isBefore(_dateOnly(_trip.startDate));
+
+  bool _isInfoEntry(String title) =>
+      title == '날씨' || title == '여행요약' || title == '여행준비';
 
   DateTime get _weatherTargetDate {
     final today = _dateOnly(DateTime.now());
@@ -1077,8 +1123,28 @@ class _TripDetailPageState extends State<TripDetailPage>
     if (!_selectedRecordIds.add(id)) _selectedRecordIds.remove(id);
   });
 
+  void _toggleDay(DateTime date) => setState(() {
+    final day = _dateOnly(date);
+    if (!_collapsedDates.add(day)) _collapsedDates.remove(day);
+  });
+
+  _TimelineEntry? get _selectedStartEntry => _timelineEntries()
+      .where(
+        (entry) =>
+            entry.badge == 'S' &&
+            entry.id != null &&
+            _selectedRecordIds.contains(entry.id),
+      )
+      .firstOrNull;
+
   Future<void> _deleteSelectedRecords() async {
     if (_selectedRecordIds.isEmpty) return;
+    final deletableEntries = _timelineEntries().where(
+      (entry) =>
+          _selectedRecordIds.contains(entry.id) &&
+          (entry.photo != null || entry.manualRecord != null),
+    );
+    if (deletableEntries.isEmpty) return;
     final selectedPhotoIds = <String>{};
     final selectedManualIds = <String>{};
     for (final entry in _timelineEntries()) {
@@ -1107,6 +1173,11 @@ class _TripDetailPageState extends State<TripDetailPage>
       _selectedRecordIds.clear();
       _selectionMode = false;
     });
+  }
+
+  Future<void> _editSelectedStart() async {
+    final entry = _selectedStartEntry;
+    if (entry != null) await _showRecordActions(entry);
   }
 
   Future<void> _addManualRecord() async {
@@ -1193,7 +1264,11 @@ class _TripDetailPageState extends State<TripDetailPage>
           result.memo ?? '',
         );
       } else if (result.action == _RecordDialogAction.delete) {
-        await _deleteRecord(entry);
+        if (result.photoIds?.isNotEmpty == true) {
+          await _deleteSelectedPhotos(result.photoIds!);
+        } else {
+          await _deleteRecord(entry);
+        }
       }
     } finally {
       _recordDialogOpen = false;
@@ -1301,6 +1376,17 @@ class _TripDetailPageState extends State<TripDetailPage>
     if (mounted) setState(() {});
   }
 
+  Future<void> _deleteSelectedPhotos(Set<String> photoIds) async {
+    _trip = _trip.copyWith(
+      hiddenPhotoIds: {..._trip.hiddenPhotoIds, ...photoIds}.toList(),
+      photoMetadata: _trip.photoMetadata
+          .where((photo) => !photoIds.contains(photo.assetId))
+          .toList(),
+    );
+    await widget.store.save(_trip);
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1308,6 +1394,12 @@ class _TripDetailPageState extends State<TripDetailPage>
         title: Text(_trip.regionName),
         actions: [
           if (_selectionMode) ...[
+            if (_selectedStartEntry != null)
+              IconButton(
+                onPressed: _editSelectedStart,
+                icon: const Icon(Icons.edit_outlined),
+                tooltip: '시작 카드 수정',
+              ),
             IconButton(
               onPressed: _deleteSelectedRecords,
               icon: const Icon(Icons.delete_outline),
@@ -1349,8 +1441,13 @@ class _TripDetailPageState extends State<TripDetailPage>
           ),
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: TripMap(trip: _trip, onRecordTap: _showRecordByNumber),
+            child: TripMap(
+              trip: _trip,
+              collapsedDates: Set.unmodifiable(_collapsedDates),
+              onRecordTap: _showRecordByNumber,
+            ),
           ),
+          const SizedBox(height: 8),
           Expanded(child: _buildRecordList()),
         ],
       ),
@@ -1374,34 +1471,22 @@ class _TripDetailPageState extends State<TripDetailPage>
     }
     for (final day in pointsByDate.keys.toList()..sort()) {
       final dayPoints = pointsByDate[day]!;
-      final first = dayPoints.first;
-      final last = dayPoints.last;
+      final first = _startPoint(dayPoints);
       entries.add(
         _TimelineEntry(
           time: first.recordedAt,
-          title: '시작',
+          title:
+              '시작(${first.recordedAt.year}/${first.recordedAt.month.toString().padLeft(2, '0')}/${first.recordedAt.day.toString().padLeft(2, '0')})',
           detail: _coordinate(first.latitude, first.longitude),
           memo: first.memo?.trim().isNotEmpty == true
               ? first.memo
               : _temperatureMemo(first.recordedAt),
           icon: _weatherIconFor(first.recordedAt),
+          id: 'start-${first.recordedAt.microsecondsSinceEpoch}',
           badge: 'S',
           routePoint: first,
         ),
       );
-      if (last.recordedAt != first.recordedAt) {
-        entries.add(
-          _TimelineEntry(
-            time: last.recordedAt,
-            title: '종료',
-            detail: _coordinate(last.latitude, last.longitude),
-            memo: last.memo,
-            icon: _weatherIconFor(last.recordedAt),
-            badge: 'E',
-            routePoint: last,
-          ),
-        );
-      }
     }
     for (final group in _photoGroups()) {
       final photo = group.photo;
@@ -1447,27 +1532,57 @@ class _TripDetailPageState extends State<TripDetailPage>
         ),
       );
     }
+    final infoTitle = _isPastTrip
+        ? '여행요약'
+        : _isFutureTrip
+        ? '여행준비'
+        : '날씨';
     entries.add(
       _TimelineEntry(
-        time: _weatherTargetDate,
-        title: '날씨',
-        detail: _weatherText,
+        time: _dateOnly(DateTime.now()),
+        title: infoTitle,
+        detail: '',
         icon: Icons.cloud_outlined,
       ),
     );
     entries.sort((a, b) {
-      if (a.title == '날씨') return -1;
-      if (b.title == '날씨') return 1;
+      if (_isInfoEntry(a.title)) return -1;
+      if (_isInfoEntry(b.title)) return 1;
       return a.time.compareTo(b.time);
     });
     var sequence = 0;
     for (var index = 0; index < entries.length; index++) {
-      if (entries[index].title != '날씨' && entries[index].badge == null) {
+      if (!_isInfoEntry(entries[index].title) && entries[index].badge == null) {
         sequence++;
         entries[index] = entries[index].copyWith(sequence: sequence);
       }
     }
     return entries;
+  }
+
+  RoutePoint _startPoint(List<RoutePoint> points) {
+    final first = points.first;
+    return points
+        .skip(1)
+        .firstWhere(
+          (point) => _routeDistanceMeters(first, point) >= 10,
+          orElse: () => first,
+        );
+  }
+
+  double _routeDistanceMeters(RoutePoint a, RoutePoint b) {
+    const radius = 6371000.0;
+    final lat1 = a.latitude * math.pi / 180;
+    final lat2 = b.latitude * math.pi / 180;
+    final dLat = (b.latitude - a.latitude) * math.pi / 180;
+    final dLon = (b.longitude - a.longitude) * math.pi / 180;
+    final h =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    return radius * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
   }
 
   List<_PhotoGroup> _photoGroups() {
@@ -1518,14 +1633,21 @@ class _TripDetailPageState extends State<TripDetailPage>
 
   Future<void> _showRecordByNumber(int number) async {
     final records = _timelineEntries()
-        .where((entry) => entry.title != '날씨' && entry.badge == null)
+        .where((entry) => !_isInfoEntry(entry.title) && entry.badge == null)
         .toList();
     if (number < 1 || number > records.length) return;
     await _showRecordActions(records[number - 1]);
   }
 
   Widget _buildRecordList() {
-    final entries = _timelineEntries();
+    final entries = _timelineEntries()
+        .where(
+          (entry) =>
+              _isInfoEntry(entry.title) ||
+              entry.badge == 'S' ||
+              !_collapsedDates.contains(_dateOnly(entry.time)),
+        )
+        .toList();
     if (entries.isEmpty) {
       return const Center(child: Text('저장된 여행 기록이 없습니다.'));
     }
@@ -1537,7 +1659,7 @@ class _TripDetailPageState extends State<TripDetailPage>
         final entry = entries[index];
         final selected =
             entry.id != null && _selectedRecordIds.contains(entry.id);
-        if (entry.title == '날씨') return _buildWeatherRecordCard();
+        if (_isInfoEntry(entry.title)) return _buildInfoRecordCard(entry.title);
         return Container(
           decoration: BoxDecoration(
             color: Colors.white,
@@ -1548,6 +1670,8 @@ class _TripDetailPageState extends State<TripDetailPage>
             behavior: HitTestBehavior.opaque,
             onTap: _selectionMode
                 ? (entry.id == null ? null : () => _toggleRecord(entry.id!))
+                : entry.badge == 'S'
+                ? () => _toggleDay(entry.time)
                 : () => _showRecordActions(entry),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1757,6 +1881,93 @@ class _TripDetailPageState extends State<TripDetailPage>
     ),
   );
 
+  Widget _buildInfoRecordCard(String title) {
+    if (title == '날씨') {
+      return SizedBox(
+        height: 76,
+        child: PageView(
+          children: [_buildWeatherRecordCard(), _buildPreparationCard()],
+        ),
+      );
+    }
+    final isSummary = title == '여행요약';
+    final country =
+        _trip.countryName ?? (_trip.regionType == 'domestic' ? '대한민국' : '국가');
+    if (!isSummary) return _buildPreparationCard();
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '여행기간 ${_date(_trip.startDate)} ~ ${_date(_trip.endDate)}  ·  도시 ${_trip.regionName}  ·  나라 $country',
+              style: const TextStyle(color: Colors.black54),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreparationCard() => Card(
+    margin: EdgeInsets.zero,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '여행준비',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 0),
+          Expanded(
+            child: Row(
+              children: [
+                for (final item in const [
+                  ('passport', '여권'),
+                  ('lodging', '숙소'),
+                  ('flight', '항공권'),
+                ])
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _pickPreparationFile(item.$1),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _trip.preparationFiles.containsKey(item.$1)
+                                ? Icons.attach_file
+                                : Icons.add,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              item.$2,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
   Widget _thumbnail(_TimelineEntry entry) {
     final photo = entry.photo;
     if (photo == null) {
@@ -1891,12 +2102,19 @@ class _PhotoGroup {
 enum _RecordDialogAction { save, delete }
 
 class _RecordDialogResult {
-  const _RecordDialogResult(this.action, {this.title, this.memo, this.place});
+  const _RecordDialogResult(
+    this.action, {
+    this.title,
+    this.memo,
+    this.place,
+    this.photoIds,
+  });
 
   final _RecordDialogAction action;
   final String? title;
   final String? memo;
   final String? place;
+  final Set<String>? photoIds;
 }
 
 class _RecordDetailDialog extends StatefulWidget {
@@ -1926,11 +2144,33 @@ class _RecordDetailDialogState extends State<_RecordDetailDialog> {
     for (final photo in widget.entry.groupPhotos)
       photo.assetId: _loadPhotoBytes(photo.assetId),
   };
+  final Set<String> _selectedPhotoIds = {};
 
   Future<Uint8List?> _loadPhotoBytes(String assetId) async {
     final asset = await AssetEntity.fromId(assetId);
     return asset?.thumbnailDataWithSize(const ThumbnailSize(800, 800));
   }
+
+  Future<void> _openPhotoViewer(
+    PhotoMetadata photo, {
+    List<PhotoMetadata>? groupPhotos,
+  }) async {
+    final photos = groupPhotos ?? [photo];
+    final index = photos.indexWhere((item) => item.assetId == photo.assetId);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (_) => _PhotoGroupViewer(
+        photos: photos,
+        initialIndex: index < 0 ? 0 : index,
+      ),
+    );
+  }
+
+  void _togglePhotoSelection(String assetId) => setState(() {
+    if (!_selectedPhotoIds.add(assetId)) _selectedPhotoIds.remove(assetId);
+  });
 
   @override
   void dispose() {
@@ -1966,14 +2206,39 @@ class _RecordDetailDialogState extends State<_RecordDetailDialog> {
           itemCount: widget.entry.groupPhotos.length,
           itemBuilder: (context, index) {
             final item = widget.entry.groupPhotos[index];
-            return FutureBuilder<Uint8List?>(
-              future: _photoBytes[item.assetId],
-              builder: (context, snapshot) {
-                final bytes = snapshot.data;
-                return bytes == null
-                    ? const ColoredBox(color: Colors.black12)
-                    : Image.memory(bytes, fit: BoxFit.cover);
-              },
+            final selected = _selectedPhotoIds.contains(item.assetId);
+            return GestureDetector(
+              onTap: () => _selectedPhotoIds.isNotEmpty
+                  ? _togglePhotoSelection(item.assetId)
+                  : _openPhotoViewer(
+                      item,
+                      groupPhotos: widget.entry.groupPhotos,
+                    ),
+              onLongPress: () => _togglePhotoSelection(item.assetId),
+              child: FutureBuilder<Uint8List?>(
+                future: _photoBytes[item.assetId],
+                builder: (context, snapshot) {
+                  final bytes = snapshot.data;
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      bytes == null
+                          ? const ColoredBox(color: Colors.black12)
+                          : Image.memory(bytes, fit: BoxFit.cover),
+                      if (selected)
+                        const ColoredBox(
+                          color: Color(0x66000000),
+                          child: Center(
+                            child: Icon(
+                              Icons.check_circle,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
             );
           },
         ),
@@ -1985,17 +2250,23 @@ class _RecordDetailDialogState extends State<_RecordDetailDialog> {
         aspectRatio: 1,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: FutureBuilder<Uint8List?>(
-            future: _photoBytes[photo.assetId],
-            builder: (context, snapshot) {
-              final bytes = snapshot.data;
-              return bytes == null
-                  ? const ColoredBox(
-                      color: Colors.black12,
-                      child: Icon(Icons.photo_outlined, size: 48),
-                    )
-                  : Image.memory(bytes, fit: BoxFit.cover);
-            },
+          child: GestureDetector(
+            onTap: () => _selectedPhotoIds.isNotEmpty
+                ? _togglePhotoSelection(photo.assetId)
+                : _openPhotoViewer(photo),
+            onLongPress: () => _togglePhotoSelection(photo.assetId),
+            child: FutureBuilder<Uint8List?>(
+              future: _photoBytes[photo.assetId],
+              builder: (context, snapshot) {
+                final bytes = snapshot.data;
+                return bytes == null
+                    ? const ColoredBox(
+                        color: Colors.black12,
+                        child: Icon(Icons.photo_outlined, size: 48),
+                      )
+                    : Image.memory(bytes, fit: BoxFit.cover);
+              },
+            ),
           ),
         ),
       ),
@@ -2104,13 +2375,25 @@ class _RecordDetailDialogState extends State<_RecordDetailDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('취소'),
         ),
-        TextButton(
-          onPressed: () => Navigator.pop(
-            context,
-            const _RecordDialogResult(_RecordDialogAction.delete),
+        if (_selectedPhotoIds.isNotEmpty)
+          TextButton(
+            onPressed: () => Navigator.pop(
+              context,
+              _RecordDialogResult(
+                _RecordDialogAction.delete,
+                photoIds: Set.unmodifiable(_selectedPhotoIds),
+              ),
+            ),
+            child: const Text('선택 삭제'),
+          )
+        else
+          TextButton(
+            onPressed: () => Navigator.pop(
+              context,
+              const _RecordDialogResult(_RecordDialogAction.delete),
+            ),
+            child: const Text('삭제'),
           ),
-          child: const Text('삭제'),
-        ),
         FilledButton(
           onPressed: () => Navigator.pop(
             context,
@@ -2126,6 +2409,70 @@ class _RecordDetailDialogState extends State<_RecordDetailDialog> {
       ],
     );
   }
+}
+
+class _PhotoGroupViewer extends StatefulWidget {
+  const _PhotoGroupViewer({required this.photos, required this.initialIndex});
+
+  final List<PhotoMetadata> photos;
+  final int initialIndex;
+
+  @override
+  State<_PhotoGroupViewer> createState() => _PhotoGroupViewerState();
+}
+
+class _PhotoGroupViewerState extends State<_PhotoGroupViewer> {
+  late final PageController _controller = PageController(
+    initialPage: widget.initialIndex,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<Uint8List?> _loadPhoto(PhotoMetadata photo) async {
+    final asset = await AssetEntity.fromId(photo.assetId);
+    return asset?.thumbnailDataWithSize(const ThumbnailSize(1600, 1600));
+  }
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.black,
+    child: SizedBox.expand(
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _controller,
+            physics: const PageScrollPhysics(),
+            itemCount: widget.photos.length,
+            itemBuilder: (context, index) => FutureBuilder<Uint8List?>(
+              future: _loadPhoto(widget.photos[index]),
+              builder: (context, snapshot) {
+                if (snapshot.data == null) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  );
+                }
+                return Center(
+                  child: Image.memory(snapshot.data!, fit: BoxFit.contain),
+                );
+              },
+            ),
+          ),
+          Positioned(
+            top: 12,
+            right: 12,
+            child: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.close, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _ManualRecordDraft {
@@ -2444,9 +2791,15 @@ class _PhotoPickerDialogState extends State<_PhotoPickerDialog> {
 }
 
 class TripMap extends StatefulWidget {
-  const TripMap({super.key, required this.trip, required this.onRecordTap});
+  const TripMap({
+    super.key,
+    required this.trip,
+    required this.collapsedDates,
+    required this.onRecordTap,
+  });
 
   final Trip trip;
+  final Set<DateTime> collapsedDates;
   final ValueChanged<int> onRecordTap;
 
   @override
@@ -2460,7 +2813,7 @@ class _TripMapState extends State<TripMap> {
   RouteLocation? _currentLocation;
   LatLng? _cityCenter;
   List<_ScreenRouteSegment> _screenRouteSegments = const [];
-  Size _mapSize = const Size(360, 174);
+  Size _mapSize = const Size(360, 210);
   final _geocoding = Geocoding();
 
   List<LatLng> get _routePoints => widget.trip.routePoints
@@ -2476,6 +2829,47 @@ class _TripMapState extends State<TripMap> {
             LatLng(latitude: photo.latitude!, longitude: photo.longitude!),
       )
       .toList();
+
+  bool get _hasExpandedDate {
+    final dates = {
+      ...widget.trip.routePoints.map((point) => _dateOnly(point.recordedAt)),
+      ...widget.trip.photoMetadata.map((photo) => _dateOnly(photo.capturedAt)),
+      ...widget.trip.manualRecords.map(
+        (record) => _dateOnly(record.recordedAt),
+      ),
+    };
+    return dates.any((date) => !widget.collapsedDates.contains(date));
+  }
+
+  List<LatLng> get _focusedRoutePoints {
+    if (!_hasExpandedDate) return _routePoints;
+    return widget.trip.routePoints
+        .where(
+          (point) =>
+              !widget.collapsedDates.contains(_dateOnly(point.recordedAt)),
+        )
+        .map(
+          (point) =>
+              LatLng(latitude: point.latitude, longitude: point.longitude),
+        )
+        .toList();
+  }
+
+  List<LatLng> get _focusedPhotoPoints {
+    if (!_hasExpandedDate) return _photoPoints;
+    return widget.trip.photoMetadata
+        .where(
+          (photo) =>
+              !widget.collapsedDates.contains(_dateOnly(photo.capturedAt)) &&
+              photo.latitude != null &&
+              photo.longitude != null,
+        )
+        .map(
+          (photo) =>
+              LatLng(latitude: photo.latitude!, longitude: photo.longitude!),
+        )
+        .toList();
+  }
 
   DateTime get _today {
     final now = DateTime.now();
@@ -2506,7 +2900,12 @@ class _TripMapState extends State<TripMap> {
   @override
   void didUpdateWidget(covariant TripMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.trip != widget.trip) _refreshMap();
+    final collapsedDatesChanged =
+        oldWidget.collapsedDates.length != widget.collapsedDates.length ||
+        oldWidget.collapsedDates.any(
+          (date) => !widget.collapsedDates.contains(date),
+        );
+    if (oldWidget.trip != widget.trip || collapsedDatesChanged) _refreshMap();
   }
 
   @override
@@ -2576,8 +2975,8 @@ class _TripMapState extends State<TripMap> {
     if (controller == null) return;
     final points = <LatLng>[];
     if (_isPast || (!_isFuture && _routePoints.isNotEmpty)) {
-      points.addAll(_routePoints);
-      if (_isPast) points.addAll(_photoPoints);
+      points.addAll(_focusedRoutePoints);
+      if (_isPast) points.addAll(_focusedPhotoPoints);
     } else if (_isFuture && _cityCenter != null) {
       points.add(_cityCenter!);
     } else if (_currentLocation != null) {
@@ -2754,21 +3153,13 @@ class _TripMapState extends State<TripMap> {
           .putIfAbsent(date, () => [])
           .add(LatLng(latitude: point.latitude, longitude: point.longitude));
     }
-    final colors = [
-      const Color(0xffe53935),
-      const Color(0xff1e88e5),
-      const Color(0xff43a047),
-      const Color(0xff8e24aa),
-      const Color(0xfffb8c00),
-      const Color(0xff00897b),
-    ];
     final entries = grouped.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
     return [
       for (var index = 0; index < entries.length; index++)
         _RouteSegment(
           points: entries[index].value,
-          color: colors[index % colors.length],
+          color: _routeColor(widget.trip.startDate, entries[index].key),
         ),
     ];
   }
@@ -2788,21 +3179,21 @@ class _TripMapState extends State<TripMap> {
         previous = photo;
         continue;
       }
-      if (photo.latitude == null || photo.longitude == null) {
-        previous = photo;
-        continue;
-      }
       records.add(
         _NumberedMapRecord(
           time: photo.capturedAt,
-          position: LatLng(
-            latitude: photo.latitude!,
-            longitude: photo.longitude!,
-          ),
+          position: photo.latitude == null || photo.longitude == null
+              ? null
+              : LatLng(latitude: photo.latitude!, longitude: photo.longitude!),
         ),
       );
       previous = photo;
     }
+    records.addAll(
+      widget.trip.manualRecords.map(
+        (record) => _NumberedMapRecord(time: record.recordedAt),
+      ),
+    );
     records.sort((a, b) => a.time.compareTo(b.time));
     return [
       for (var index = 0; index < records.length; index++)
@@ -2812,10 +3203,14 @@ class _TripMapState extends State<TripMap> {
 
   Future<void> _addTripMarkers(KakaoMapController controller) async {
     for (final record in _numberedMapRecords) {
+      if (record.position == null ||
+          widget.collapsedDates.contains(_dateOnly(record.time))) {
+        continue;
+      }
       await controller.addMarker(
         markerOption: MarkerOption(
           id: 'record-${record.number}',
-          latLng: record.position,
+          latLng: record.position!,
           rank: 10000,
           styleId: 'travel-record-number-${record.number}',
         ),
@@ -2826,7 +3221,7 @@ class _TripMapState extends State<TripMap> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 174,
+      height: 210,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: Stack(
@@ -2933,14 +3328,10 @@ class _RouteSegment {
 }
 
 class _NumberedMapRecord {
-  const _NumberedMapRecord({
-    required this.time,
-    required this.position,
-    this.number,
-  });
+  const _NumberedMapRecord({required this.time, this.position, this.number});
 
   final DateTime time;
-  final LatLng position;
+  final LatLng? position;
   final int? number;
 
   _NumberedMapRecord copyWith({int? number}) => _NumberedMapRecord(
@@ -3381,6 +3772,9 @@ Color _dateColor(DateTime tripStart, DateTime date) {
   final day = _dateOnly(date).difference(_dateOnly(tripStart)).inDays;
   return colors[(day < 0 ? 0 : day) % colors.length];
 }
+
+Color _routeColor(DateTime tripStart, DateTime date) =>
+    Color.lerp(_dateColor(tripStart, date), Colors.black, 0.25)!;
 
 bool _isVideo(PhotoMetadata photo) =>
     photo.mediaType == 'video' ||

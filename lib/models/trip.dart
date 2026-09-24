@@ -164,6 +164,18 @@ class ManualRecord {
   );
 }
 
+class PreparationFile {
+  const PreparationFile({required this.name, required this.uri});
+
+  final String name;
+  final String uri;
+
+  Map<String, String> toJson() => {'name': name, 'uri': uri};
+
+  factory PreparationFile.fromJson(Map<String, dynamic> json) =>
+      PreparationFile(name: json['name'] as String, uri: json['uri'] as String);
+}
+
 class Trip {
   const Trip({
     required this.id,
@@ -179,6 +191,7 @@ class Trip {
     this.weatherDate,
     this.weatherRecords = const [],
     this.manualRecords = const [],
+    this.preparationFiles = const {},
   });
 
   final String id;
@@ -194,6 +207,7 @@ class Trip {
   final DateTime? weatherDate;
   final List<WeatherRecord> weatherRecords;
   final List<ManualRecord> manualRecords;
+  final Map<String, PreparationFile> preparationFiles;
 
   Trip copyWith({
     List<RoutePoint>? routePoints,
@@ -204,6 +218,7 @@ class Trip {
     DateTime? weatherDate,
     List<WeatherRecord>? weatherRecords,
     List<ManualRecord>? manualRecords,
+    Map<String, PreparationFile>? preparationFiles,
   }) => Trip(
     id: id,
     regionType: regionType,
@@ -218,6 +233,7 @@ class Trip {
     weatherDate: weatherDate ?? this.weatherDate,
     weatherRecords: weatherRecords ?? this.weatherRecords,
     manualRecords: manualRecords ?? this.manualRecords,
+    preparationFiles: preparationFiles ?? this.preparationFiles,
   );
 
   Map<String, Object?> toJson() => {
@@ -234,6 +250,9 @@ class Trip {
     'weatherDate': weatherDate?.toIso8601String(),
     'weatherRecords': weatherRecords.map((item) => item.toJson()).toList(),
     'manualRecords': manualRecords.map((item) => item.toJson()).toList(),
+    'preparationFiles': preparationFiles.map(
+      (key, file) => MapEntry(key, file.toJson()),
+    ),
   };
 
   factory Trip.fromJson(Map<String, dynamic> json) => Trip(
@@ -261,5 +280,12 @@ class Trip {
     manualRecords: (json['manualRecords'] as List<dynamic>? ?? [])
         .map((item) => ManualRecord.fromJson(item as Map<String, dynamic>))
         .toList(),
+    preparationFiles: (json['preparationFiles'] as Map<String, dynamic>? ?? {})
+        .map(
+          (key, value) => MapEntry(
+            key,
+            PreparationFile.fromJson(value as Map<String, dynamic>),
+          ),
+        ),
   );
 }
