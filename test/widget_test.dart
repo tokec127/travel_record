@@ -94,4 +94,44 @@ void main() {
     final reloaded = (await store.readAll()).single;
     expect(reloaded.photoMetadata.single.memo, '다시 확인할 메모');
   });
+
+  test('여행 제목을 저장하고 여행을 삭제할 수 있다', () async {
+    final store = TripStore.memory();
+    await store.save(
+      Trip(
+        id: 'trip-edit',
+        title: '제주 여행',
+        regionType: 'domestic',
+        regionName: '제주',
+        startDate: DateTime(2026, 1, 1),
+        endDate: DateTime(2026, 1, 2),
+      ),
+    );
+
+    expect((await store.readAll()).single.title, '제주 여행');
+    await store.delete('trip-edit');
+    expect(await store.readAll(), isEmpty);
+  });
+
+  test('항공권 여러 파일을 저장하고 다시 읽을 수 있다', () async {
+    final store = TripStore.memory();
+    await store.save(
+      Trip(
+        id: 'trip-flight',
+        regionType: 'overseas',
+        regionName: '도쿄',
+        startDate: DateTime(2026, 1, 1),
+        endDate: DateTime(2026, 1, 2),
+        preparationFiles: {
+          'flight': const [
+            PreparationFile(name: '가는편.pdf', uri: 'content://flight-out'),
+            PreparationFile(name: '오는편.pdf', uri: 'content://flight-in'),
+          ],
+        },
+      ),
+    );
+
+    final saved = (await store.readAll()).single;
+    expect(saved.preparationFiles['flight'], hasLength(2));
+  });
 }

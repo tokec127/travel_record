@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -195,6 +197,8 @@ class TripListPage extends StatefulWidget {
 class _TripListPageState extends State<TripListPage>
     with SingleTickerProviderStateMixin {
   List<Trip> _trips = [];
+  final Set<String> _selectedTripIds = {};
+  bool _tripSelectionMode = false;
   bool _loading = true;
   late final AnimationController _activeIndicator;
   final _locationService = LocationService();
@@ -228,7 +232,7 @@ class _TripListPageState extends State<TripListPage>
     final trips = await widget.store.readAll();
     if (!mounted) return;
     setState(() {
-      _trips = trips;
+      _trips = _sortTrips(trips);
       _loading = false;
     });
     _updateActiveIndicator();
@@ -346,11 +350,187 @@ class _TripListPageState extends State<TripListPage>
     if (trip == null) return;
     await widget.store.save(trip);
     if (mounted) {
-      setState(() => _trips = [..._trips, trip]);
+      setState(() => _trips = _sortTrips([..._trips, trip]));
       _updateActiveIndicator();
       await _startAutomaticCollection();
     }
   }
+
+  Future<Trip?> _selectTripForAction(String title) => showDialog<Trip>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final trip in _trips)
+              ListTile(
+                title: Text(
+                  trip.title.trim().isEmpty ? _tripLocation(trip) : trip.title,
+                ),
+                subtitle: Text(
+                  '${_tripLocation(trip)} · ${_date(trip.startDate)} ~ ${_date(trip.endDate)}',
+                ),
+                onTap: () => Navigator.pop(context, trip),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _openPhotoRecord() async {
+    final trip = await _selectTripForAction('사진기록 여행 선택');
+    if (trip == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PhotoGalleryPage(store: widget.store, trip: trip),
+      ),
+    );
+  }
+
+  Future<void> _shareTripRecord() async {
+    final trip = await _selectTripForAction('기록공유 여행 선택');
+    if (trip == null || !mounted) return;
+    final files = <Map<String, String>>[
+      for (final photo in trip.photoMetadata)
+        {'source': photo.filePath, 'name': photo.filePath.split('/').last},
+      for (final preparation in trip.preparationFiles.values.expand(
+        (items) => items,
+      ))
+        {'source': preparation.uri, 'name': preparation.name},
+    ];
+    await const MethodChannel('travel_record/files')
+        .invokeMethod<void>('shareTripZip', {
+          'fileName': '사용자_${_date(trip.startDate)}_${trip.regionName}.zip',
+          'metadata': jsonEncode(trip.toJson()),
+          'files': files,
+        });
+  }
+
+  void _startTripSelection() {
+    setState(() {
+      _tripSelectionMode = true;
+      _selectedTripIds.clear();
+    });
+  }
+
+  void _toggleTripSelection(Trip trip) {
+    setState(() {
+      if (!_selectedTripIds.add(trip.id)) _selectedTripIds.remove(trip.id);
+    });
+  }
+
+  void _showTripMessage(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _editTrip(Trip trip) async {
+    final edited = await showDialog<Trip>(
+      context: context,
+      builder: (_) => CreateTripDialog(
+        initialTrip: trip,
+        onDelete: () => _deleteTrip(trip),
+      ),
+    );
+    if (edited == null) return;
+    await widget.store.save(edited);
+    if (!mounted) return;
+    setState(() {
+      _trips = _sortTrips(
+        _trips.map((item) => item.id == edited.id ? edited : item).toList(),
+      );
+      _tripSelectionMode = false;
+      _selectedTripIds.clear();
+    });
+    await _startAutomaticCollection();
+  }
+
+  Future<void> _deleteTrip(Trip trip) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('여행 삭제'),
+        content: Text(
+          '${trip.title.trim().isEmpty ? _tripLocation(trip) : trip.title} 여행을 삭제할까요?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.store.delete(trip.id);
+    if (!mounted) return;
+    setState(() {
+      _trips.removeWhere((item) => item.id == trip.id);
+      _tripSelectionMode = false;
+      _selectedTripIds.clear();
+    });
+    await _startAutomaticCollection();
+  }
+
+  Future<void> _editSelectedTrip() async {
+    if (_selectedTripIds.length != 1) {
+      _showTripMessage('수정할 여행을 하나 선택하세요.');
+      return;
+    }
+    final trip = _trips.firstWhere(
+      (item) => _selectedTripIds.contains(item.id),
+    );
+    await _editTrip(trip);
+  }
+
+  Future<void> _deleteSelectedTrips() async {
+    if (_selectedTripIds.isEmpty) {
+      _showTripMessage('삭제할 여행을 선택하세요.');
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('여행 삭제'),
+        content: Text('선택한 ${_selectedTripIds.length}개의 여행을 삭제할까요?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    for (final tripId in _selectedTripIds) {
+      await widget.store.delete(tripId);
+    }
+    if (!mounted) return;
+    setState(() {
+      _trips.removeWhere((trip) => _selectedTripIds.contains(trip.id));
+      _selectedTripIds.clear();
+      _tripSelectionMode = false;
+    });
+    await _startAutomaticCollection();
+  }
+
+  List<Trip> _sortTrips(List<Trip> trips) => [...trips]
+    ..sort((a, b) {
+      final start = a.startDate.compareTo(b.startDate);
+      return start != 0 ? start : a.endDate.compareTo(b.endDate);
+    });
 
   @override
   Widget build(BuildContext context) {
@@ -461,39 +641,62 @@ class _TripListPageState extends State<TripListPage>
                       _DashboardAction(
                         icon: Icons.photo_library_outlined,
                         label: '사진 기록',
-                        onTap: activeTrips.isEmpty
-                            ? null
-                            : () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => PhotoGalleryPage(
-                                    store: widget.store,
-                                    trip: activeTrips.first,
-                                  ),
-                                ),
-                              ),
+                        onTap: _trips.isEmpty ? null : _openPhotoRecord,
                       ),
                       _DashboardAction(
-                        icon: Icons.settings_outlined,
-                        label: '앱 설정',
-                        onTap: () async {
-                          await Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const SettingsPage(),
-                            ),
-                          );
-                          await _startAutomaticCollection();
-                        },
+                        icon: Icons.ios_share_outlined,
+                        label: '기록공유',
+                        onTap: _trips.isEmpty ? null : _shareTripRecord,
+                      ),
+                      _DashboardAction(
+                        icon: Icons.bar_chart_outlined,
+                        label: '통계',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const StatisticsPage(),
+                          ),
+                        ),
                       ),
                     ],
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-                  child: Text(
-                    '나의 여행',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+                  child: Row(
+                    children: [
+                      Text(
+                        '나의 여행',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (_tripSelectionMode) ...[
+                        IconButton(
+                          onPressed: _editSelectedTrip,
+                          icon: const Icon(Icons.edit_outlined),
+                          tooltip: '선택 여행 수정',
+                        ),
+                        IconButton(
+                          onPressed: _deleteSelectedTrips,
+                          icon: const Icon(Icons.delete_outline),
+                          tooltip: '선택 여행 삭제',
+                        ),
+                        IconButton(
+                          onPressed: () => setState(() {
+                            _tripSelectionMode = false;
+                            _selectedTripIds.clear();
+                          }),
+                          icon: const Icon(Icons.close),
+                          tooltip: '선택 취소',
+                        ),
+                      ] else
+                        IconButton(
+                          onPressed: _startTripSelection,
+                          icon: const Icon(Icons.more_horiz),
+                          tooltip: '여행 메뉴',
+                        ),
+                    ],
                   ),
                 ),
                 if (_trips.isEmpty)
@@ -541,20 +744,24 @@ class _TripListPageState extends State<TripListPage>
         ? Icons.location_city
         : Icons.public;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
       child: Card(
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => TripDetailPage(store: widget.store, trip: trip),
-            ),
-          ),
+          onTap: _tripSelectionMode
+              ? () => _toggleTripSelection(trip)
+              : () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        TripDetailPage(store: widget.store, trip: trip),
+                  ),
+                ),
+          onLongPress: _tripSelectionMode ? null : () => _editTrip(trip),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               children: [
                 active
@@ -579,18 +786,25 @@ class _TripListPageState extends State<TripListPage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _tripLocation(trip),
+                        trip.title.trim().isEmpty
+                            ? _tripLocation(trip)
+                            : trip.title,
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${_date(trip.startDate)} ~ ${_date(trip.endDate)}',
+                        '${_tripLocation(trip)} · ${_date(trip.startDate)} ~ ${_date(trip.endDate)}',
                         style: theme.textTheme.bodySmall,
                       ),
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right),
+                _tripSelectionMode
+                    ? Checkbox(
+                        value: _selectedTripIds.contains(trip.id),
+                        onChanged: (_) => _toggleTripSelection(trip),
+                      )
+                    : const Icon(Icons.chevron_right),
               ],
             ),
           ),
@@ -639,20 +853,53 @@ class _DashboardAction extends StatelessWidget {
   }
 }
 
+class _EnglishPlace {
+  const _EnglishPlace({required this.city, required this.country});
+
+  final String city;
+  final String country;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _EnglishPlace && other.city == city && other.country == country;
+
+  @override
+  int get hashCode => Object.hash(city, country);
+}
+
 class CreateTripDialog extends StatefulWidget {
-  const CreateTripDialog({super.key});
+  const CreateTripDialog({super.key, this.initialTrip, this.onDelete});
+
+  final Trip? initialTrip;
+  final VoidCallback? onDelete;
 
   @override
   State<CreateTripDialog> createState() => _CreateTripDialogState();
 }
 
 class _CreateTripDialogState extends State<CreateTripDialog> {
+  final _geocoding = Geocoding();
+  final _title = TextEditingController();
   final _name = TextEditingController();
   final _country = TextEditingController();
   String _regionType = 'domestic';
   DateTime? _start;
   DateTime? _end;
   String? _error;
+  Timer? _countryLookupTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    final trip = widget.initialTrip;
+    if (trip == null) return;
+    _title.text = trip.title;
+    _name.text = trip.regionName;
+    _country.text = trip.countryName ?? '';
+    _regionType = trip.regionType;
+    _start = trip.startDate;
+    _end = trip.endDate;
+  }
 
   Future<void> _pickDateRange() async {
     final picked = await showDateRangePicker(
@@ -671,6 +918,125 @@ class _CreateTripDialogState extends State<CreateTripDialog> {
     }
   }
 
+  void _scheduleCountryLookup(String city) {
+    _countryLookupTimer?.cancel();
+    if (_regionType != 'overseas' || city.trim().isEmpty) return;
+    _countryLookupTimer = Timer(const Duration(milliseconds: 600), () async {
+      try {
+        final suggestions = await _englishPlaceSuggestions(city.trim());
+        if (suggestions.isNotEmpty &&
+            mounted &&
+            _name.text.trim() == city.trim()) {
+          final selected = await _selectEnglishPlace(suggestions);
+          if (selected != null && mounted && _name.text.trim() == city.trim()) {
+            _name.text = selected.city;
+            _country.text = selected.country;
+          }
+          return;
+        }
+        final locations = await _geocoding.locationFromAddress(city.trim());
+        if (locations.isEmpty) return;
+        final placemarks = await _geocoding.placemarkFromCoordinates(
+          locations.first.latitude,
+          locations.first.longitude,
+        );
+        final placemark = placemarks.firstOrNull;
+        final correctedCity =
+            (placemark?.locality ??
+                    placemark?.subAdministrativeArea ??
+                    placemark?.administrativeArea)
+                ?.trim();
+        final country = placemark?.country?.trim();
+        if (!mounted ||
+            _regionType != 'overseas' ||
+            _name.text.trim() != city.trim() ||
+            (correctedCity == null && country == null)) {
+          return;
+        }
+        if (correctedCity != null && correctedCity.isNotEmpty) {
+          _name.text = correctedCity;
+        }
+        if (country != null && country.isNotEmpty) _country.text = country;
+      } catch (_) {
+        // 도시를 찾지 못하면 사용자가 국가명을 직접 입력할 수 있다.
+      }
+    });
+  }
+
+  Future<List<_EnglishPlace>> _englishPlaceSuggestions(String query) async {
+    final client = HttpClient();
+    try {
+      final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+        'q': query,
+        'format': 'jsonv2',
+        'addressdetails': '1',
+        'limit': '5',
+        'accept-language': 'en',
+      });
+      final request = await client.getUrl(uri);
+      request.headers.set(HttpHeaders.userAgentHeader, 'travel_record');
+      final response = await request.close().timeout(
+        const Duration(seconds: 5),
+      );
+      if (response.statusCode != HttpStatus.ok) return const [];
+      final values = jsonDecode(await response.transform(utf8.decoder).join());
+      if (values is! List) return const [];
+      final suggestions = <_EnglishPlace>[];
+      for (final value in values) {
+        if (value is! Map) continue;
+        final address = value['address'];
+        if (address is! Map) continue;
+        final city =
+            (address['city'] ??
+                    address['town'] ??
+                    address['village'] ??
+                    address['municipality'] ??
+                    value['name'])
+                ?.toString()
+                .trim();
+        final country = address['country']?.toString().trim();
+        if (city == null ||
+            city.isEmpty ||
+            country == null ||
+            country.isEmpty) {
+          continue;
+        }
+        final suggestion = _EnglishPlace(city: city, country: country);
+        if (!suggestions.contains(suggestion)) suggestions.add(suggestion);
+      }
+      return suggestions;
+    } catch (_) {
+      return const [];
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<_EnglishPlace?> _selectEnglishPlace(List<_EnglishPlace> suggestions) =>
+      showDialog<_EnglishPlace>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('영문 도시·국가 추천'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final suggestion in suggestions)
+                ListTile(
+                  title: Text(suggestion.city),
+                  subtitle: Text(suggestion.country),
+                  onTap: () => Navigator.pop(context, suggestion),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('직접 입력'),
+            ),
+          ],
+        ),
+      );
+
   void _save() {
     final name = _name.text.trim();
     if (name.isEmpty) {
@@ -685,22 +1051,34 @@ class _CreateTripDialogState extends State<CreateTripDialog> {
       setState(() => _error = '종료일은 시작일 이후여야 합니다.');
       return;
     }
+    final original = widget.initialTrip;
     Navigator.of(context).pop(
       Trip(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        id: original?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         regionType: _regionType,
         regionName: name,
         startDate: _start!,
         endDate: _end!,
+        title: _title.text.trim(),
         countryName: _regionType == 'domestic'
             ? '대한민국'
             : (_country.text.trim().isEmpty ? null : _country.text.trim()),
+        routePoints: original?.routePoints ?? const [],
+        photoMetadata: original?.photoMetadata ?? const [],
+        hiddenPhotoIds: original?.hiddenPhotoIds ?? const [],
+        weatherSummary: original?.weatherSummary,
+        weatherDate: original?.weatherDate,
+        weatherRecords: original?.weatherRecords ?? const [],
+        manualRecords: original?.manualRecords ?? const [],
+        preparationFiles: original?.preparationFiles ?? const {},
       ),
     );
   }
 
   @override
   void dispose() {
+    _countryLookupTimer?.cancel();
+    _title.dispose();
     _name.dispose();
     _country.dispose();
     super.dispose();
@@ -709,11 +1087,15 @@ class _CreateTripDialogState extends State<CreateTripDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('새 여행 만들기'),
+      title: Text(widget.initialTrip == null ? '새 여행 만들기' : '여행 수정'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            TextField(
+              controller: _title,
+              decoration: const InputDecoration(labelText: '제목'),
+            ),
             DropdownButtonFormField<String>(
               value: _regionType,
               decoration: const InputDecoration(labelText: '여행 구분'),
@@ -721,10 +1103,14 @@ class _CreateTripDialogState extends State<CreateTripDialog> {
                 DropdownMenuItem(value: 'domestic', child: Text('국내 · 도시')),
                 DropdownMenuItem(value: 'overseas', child: Text('해외 · 도시')),
               ],
-              onChanged: (value) => setState(() => _regionType = value!),
+              onChanged: (value) {
+                setState(() => _regionType = value!);
+                _scheduleCountryLookup(_name.text);
+              },
             ),
             TextField(
               controller: _name,
+              onChanged: _scheduleCountryLookup,
               decoration: InputDecoration(
                 labelText: _regionType == 'domestic' ? '도시' : '도시',
               ),
@@ -733,6 +1119,14 @@ class _CreateTripDialogState extends State<CreateTripDialog> {
               TextField(
                 controller: _country,
                 decoration: const InputDecoration(labelText: '국가명(영문 권장)'),
+              ),
+            if (_regionType == 'domestic')
+              const InputDecorator(
+                decoration: InputDecoration(labelText: '국가'),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('국내'),
+                ),
               ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -756,11 +1150,25 @@ class _CreateTripDialogState extends State<CreateTripDialog> {
         ),
       ),
       actions: [
+        if (widget.initialTrip != null)
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              widget.onDelete?.call();
+            },
+            child: Text(
+              '삭제',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('취소'),
         ),
-        FilledButton(onPressed: _save, child: const Text('저장')),
+        FilledButton(
+          onPressed: _save,
+          child: Text(widget.initialTrip == null ? '저장' : '수정'),
+        ),
       ],
     );
   }
@@ -861,27 +1269,132 @@ class _TripDetailPageState extends State<TripDetailPage>
     }
   }
 
-  Future<void> _pickPreparationFile(String key) async {
-    final selected = _trip.preparationFiles[key];
-    if (selected != null) {
-      await _fileChannel.invokeMethod<void>('openFile', {'uri': selected.uri});
+  Future<void> _pickPreparationFile(String key, {bool append = false}) async {
+    final selected = _trip.preparationFiles[key] ?? const [];
+    if (selected.isNotEmpty && !append) {
+      if (selected.length > 1) {
+        await _showPreparationFileList(key, key == 'flight' ? '항공권' : key);
+        return;
+      }
+      await _fileChannel.invokeMethod<void>('openFile', {
+        'uri': selected.first.uri,
+      });
       return;
     }
-    final result = await _fileChannel.invokeMethod<Map<Object?, Object?>>(
-      'pickFile',
-    );
+    final result = await _fileChannel.invokeMethod<Object?>('pickFile', {
+      'allowMultiple': key == 'flight',
+    });
     if (!mounted || result == null) return;
-    final name = result['name'] as String?;
-    final uri = result['uri'] as String?;
-    if (name == null || uri == null) return;
+    final values = result is List
+        ? result.whereType<Map<Object?, Object?>>().toList()
+        : [result as Map<Object?, Object?>];
+    final files = values
+        .map((value) {
+          final name = value['name'] as String?;
+          final uri = value['uri'] as String?;
+          return name == null || uri == null
+              ? null
+              : PreparationFile(name: name, uri: uri);
+        })
+        .whereType<PreparationFile>()
+        .toList();
+    if (files.isEmpty) return;
     _trip = _trip.copyWith(
       preparationFiles: {
         ..._trip.preparationFiles,
-        key: PreparationFile(name: name, uri: uri),
+        key: key == 'flight' ? [...selected, ...files] : [files.first],
       },
     );
     await widget.store.save(_trip);
     if (mounted) setState(() {});
+  }
+
+  Future<void> _showPreparationFileList(String key, String label) async {
+    final files = _trip.preparationFiles[key] ?? const [];
+    final selected = await showDialog<PreparationFile>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('$label 파일 선택'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final file in files)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.attach_file),
+                title: Text(
+                  file.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () => Navigator.pop(context, file),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    await _fileChannel.invokeMethod<void>('openFile', {'uri': selected.uri});
+  }
+
+  Future<void> _removePreparationFile(String key, int index) async {
+    final files = <PreparationFile>[
+      ...(_trip.preparationFiles[key] ?? const []),
+    ]..removeAt(index);
+    final preparationFiles = {..._trip.preparationFiles};
+    if (files.isEmpty) {
+      preparationFiles.remove(key);
+    } else {
+      preparationFiles[key] = files;
+    }
+    _trip = _trip.copyWith(preparationFiles: preparationFiles);
+    await widget.store.save(_trip);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _showPreparationActions(String key, String label) async {
+    final files = _trip.preparationFiles[key] ?? const [];
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('$label 파일 관리'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var index = 0; index < files.length; index++)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  files[index].name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: IconButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _removePreparationFile(key, index);
+                  },
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: '파일 삭제',
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _pickPreparationFile(key, append: true);
+            },
+            child: const Text('추가'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('닫기'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadLatestTrip() async {
@@ -1893,7 +2406,9 @@ class _TripDetailPageState extends State<TripDetailPage>
     final isSummary = title == '여행요약';
     final country =
         _trip.countryName ?? (_trip.regionType == 'domestic' ? '대한민국' : '국가');
-    if (!isSummary) return _buildPreparationCard();
+    if (!isSummary) {
+      return SizedBox(height: 76, child: _buildPreparationCard());
+    }
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -1937,27 +2452,59 @@ class _TripDetailPageState extends State<TripDetailPage>
                   ('flight', '항공권'),
                 ])
                   Expanded(
-                    child: InkWell(
-                      onTap: () => _pickPreparationFile(item.$1),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _trip.preparationFiles.containsKey(item.$1)
-                                ? Icons.attach_file
-                                : Icons.add,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              item.$2,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => _pickPreparationFile(item.$1),
+                            onLongPress:
+                                (_trip.preparationFiles[item.$1] ?? const [])
+                                    .isEmpty
+                                ? null
+                                : () =>
+                                      _showPreparationActions(item.$1, item.$2),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  (_trip.preparationFiles[item.$1] ?? const [])
+                                          .isNotEmpty
+                                      ? Icons.attach_file
+                                      : Icons.add,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    item.$1 == 'flight' &&
+                                            (_trip.preparationFiles[item.$1] ??
+                                                        const [])
+                                                    .length >
+                                                1
+                                        ? '${item.$2} ${(_trip.preparationFiles[item.$1] ?? const []).length}개'
+                                        : item.$2,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                        if (item.$1 == 'flight' &&
+                            (_trip.preparationFiles[item.$1] ?? const [])
+                                .isNotEmpty)
+                          IconButton(
+                            onPressed: () =>
+                                _pickPreparationFile(item.$1, append: true),
+                            icon: const Icon(Icons.add, size: 16),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 24,
+                            ),
+                            tooltip: '항공권 파일 추가',
+                          ),
+                      ],
                     ),
                   ),
               ],
@@ -3409,6 +3956,16 @@ class PhotoGalleryPage extends StatefulWidget {
   State<PhotoGalleryPage> createState() => _PhotoGalleryPageState();
 }
 
+class StatisticsPage extends StatelessWidget {
+  const StatisticsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('여행통계')),
+    body: const SizedBox.shrink(),
+  );
+}
+
 class _PhotoGalleryPageState extends State<PhotoGalleryPage> {
   late Trip _trip;
   List<AssetEntity> _assets = const [];
@@ -3738,7 +4295,7 @@ String _date(DateTime date) =>
     '${date.year}.${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')}';
 
 String _tripLocation(Trip trip) =>
-    '${trip.regionName}/${trip.countryName ?? (trip.regionType == 'domestic' ? '대한민국' : '국가')}';
+    '${trip.regionName}/${trip.regionType == 'domestic' ? '국내' : (trip.countryName ?? '국가')}';
 
 DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
 

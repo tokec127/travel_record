@@ -183,6 +183,7 @@ class Trip {
     required this.regionName,
     required this.startDate,
     required this.endDate,
+    this.title = '',
     this.countryName,
     this.routePoints = const [],
     this.photoMetadata = const [],
@@ -199,6 +200,7 @@ class Trip {
   final String regionName;
   final DateTime startDate;
   final DateTime endDate;
+  final String title;
   final String? countryName;
   final List<RoutePoint> routePoints;
   final List<PhotoMetadata> photoMetadata;
@@ -207,7 +209,7 @@ class Trip {
   final DateTime? weatherDate;
   final List<WeatherRecord> weatherRecords;
   final List<ManualRecord> manualRecords;
-  final Map<String, PreparationFile> preparationFiles;
+  final Map<String, List<PreparationFile>> preparationFiles;
 
   Trip copyWith({
     List<RoutePoint>? routePoints,
@@ -218,13 +220,14 @@ class Trip {
     DateTime? weatherDate,
     List<WeatherRecord>? weatherRecords,
     List<ManualRecord>? manualRecords,
-    Map<String, PreparationFile>? preparationFiles,
+    Map<String, List<PreparationFile>>? preparationFiles,
   }) => Trip(
     id: id,
     regionType: regionType,
     regionName: regionName,
     startDate: startDate,
     endDate: endDate,
+    title: title,
     countryName: countryName ?? this.countryName,
     routePoints: routePoints ?? this.routePoints,
     photoMetadata: photoMetadata ?? this.photoMetadata,
@@ -242,6 +245,7 @@ class Trip {
     'regionName': regionName,
     'startDate': startDate.toIso8601String(),
     'endDate': endDate.toIso8601String(),
+    'title': title,
     'countryName': countryName,
     'routePoints': routePoints.map((point) => point.toJson()).toList(),
     'photoMetadata': photoMetadata.map((photo) => photo.toJson()).toList(),
@@ -251,7 +255,8 @@ class Trip {
     'weatherRecords': weatherRecords.map((item) => item.toJson()).toList(),
     'manualRecords': manualRecords.map((item) => item.toJson()).toList(),
     'preparationFiles': preparationFiles.map(
-      (key, file) => MapEntry(key, file.toJson()),
+      (key, files) =>
+          MapEntry(key, files.map((file) => file.toJson()).toList()),
     ),
   };
 
@@ -261,6 +266,7 @@ class Trip {
     regionName: json['regionName'] as String,
     startDate: DateTime.parse(json['startDate'] as String),
     endDate: DateTime.parse(json['endDate'] as String),
+    title: json['title'] as String? ?? '',
     countryName: json['countryName'] as String?,
     routePoints: (json['routePoints'] as List<dynamic>)
         .map((point) => RoutePoint.fromJson(point as Map<String, dynamic>))
@@ -280,12 +286,19 @@ class Trip {
     manualRecords: (json['manualRecords'] as List<dynamic>? ?? [])
         .map((item) => ManualRecord.fromJson(item as Map<String, dynamic>))
         .toList(),
-    preparationFiles: (json['preparationFiles'] as Map<String, dynamic>? ?? {})
-        .map(
-          (key, value) => MapEntry(
-            key,
-            PreparationFile.fromJson(value as Map<String, dynamic>),
-          ),
-        ),
+    preparationFiles: _preparationFilesFromJson(json['preparationFiles']),
   );
+}
+
+Map<String, List<PreparationFile>> _preparationFilesFromJson(Object? value) {
+  if (value is! Map<String, dynamic>) return {};
+  return value.map((key, item) {
+    final values = item is List ? item : [item];
+    return MapEntry(
+      key,
+      values
+          .map((file) => PreparationFile.fromJson(file as Map<String, dynamic>))
+          .toList(),
+    );
+  });
 }

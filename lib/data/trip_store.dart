@@ -36,6 +36,28 @@ class TripStore {
     return operation;
   }
 
+  Future<void> delete(String tripId) {
+    final operation = _saveQueue.then((_) => _deleteNow(tripId));
+    _saveQueue = operation.then<void>((_) {}, onError: (_, _) {});
+    return operation;
+  }
+
+  Future<void> _deleteNow(String tripId) async {
+    final updated = (await readAll())
+        .where((trip) => trip.id != tripId)
+        .toList();
+    if (_preferences == null) {
+      _memoryTrips
+        ..clear()
+        ..addAll(updated);
+    } else {
+      await _preferences!.setString(
+        _key,
+        jsonEncode(updated.map((item) => item.toJson()).toList()),
+      );
+    }
+  }
+
   Future<void> _saveNow(Trip trip) async {
     final trips = await readAll();
     final index = trips.indexWhere((item) => item.id == trip.id);
